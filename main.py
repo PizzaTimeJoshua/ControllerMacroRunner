@@ -1172,7 +1172,7 @@ class App:
         top = ttk.Frame(outer)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        top.columnconfigure(9, weight=1)
+        top.columnconfigure(13, weight=1)
 
         # Camera controls
         ttk.Label(top, text="Camera:").grid(row=0, column=0, sticky="w")
@@ -1192,17 +1192,33 @@ class App:
         self.ser_btn = ttk.Button(top, text="Connect", command=self.toggle_serial)
         self.ser_btn.grid(row=0, column=7, sticky="w", padx=(0, 18))
 
+        # Channel controls
+        ttk.Label(top, text="Channel:").grid(row=0, column=8, sticky="w")  # adjust column if needed
+
+        self.chan_var = tk.StringVar(value="1")
+        self.chan_combo = ttk.Combobox(
+            top,
+            textvariable=self.chan_var,
+            state="readonly",
+            width=4,
+            values=[str(i) for i in range(1, 17)]
+        )
+        self.chan_combo.grid(row=0, column=9, sticky="w", padx=(6, 6))
+
+        ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
+
+
         # Script file controls
-        ttk.Label(top, text="Script:").grid(row=0, column=8, sticky="w")
+        ttk.Label(top, text="Script:").grid(row=0, column=12, sticky="w")
         self.script_var = tk.StringVar()
         self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=26)
-        self.script_combo.grid(row=0, column=9, sticky="ew", padx=(6, 6))
-        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=10, padx=(0, 6))
-        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=11, padx=(0, 6))
-        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=12, padx=(0, 18))
+        self.script_combo.grid(row=0, column=13, sticky="ew", padx=(6, 6))
+        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 6))
+        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
+        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 18))
 
-        ttk.Button(top, text="Save", command=self.save_script).grid(row=0, column=13, padx=(0, 6))
-        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=0, column=14, padx=(0, 6))
+        ttk.Button(top, text="Save", command=self.save_script).grid(row=0, column=17, padx=(0, 6))
+        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=0, column=18, padx=(0, 6))
 
         # Run controls
         runbar = ttk.Frame(outer)
@@ -1634,6 +1650,39 @@ class App:
                 self.ser_btn.configure(text="Disconnect")
             except Exception as e:
                 messagebox.showerror("Serial error", str(e))
+    def set_channel(self):
+        if not self.serial.connected:
+            messagebox.showwarning("Not connected", "Connect to the COM device first.")
+            return
+
+        ch_str = (self.chan_var.get() or "").strip()
+        try:
+            ch = int(ch_str)
+        except ValueError:
+            messagebox.showerror("Invalid channel", "Channel must be a number.")
+            return
+
+        if not (1 <= ch <= 255):
+            messagebox.showerror("Invalid channel", "Channel must be between 1 and 255.")
+            return
+
+        # If your device expects 0x01.. and you want UI to show 1.., this maps directly.
+        ch_byte = ch & 0xFF
+
+        if not messagebox.askyesno(
+            "Change Channel",
+            f"Send channel set to {ch} (0x{ch_byte:02X})?\n\n"
+            "Note: receiver must be power-cycled after changing the channel.",
+            parent=self.root
+        ):
+            return
+
+        try:
+            self.serial.send_channel_set(ch_byte)  # sends: 0x43, ch, 0x00
+            self.set_status(f"Channel set sent: {ch} (0x{ch_byte:02X}). Power-cycle receiver.")
+        except Exception as e:
+            messagebox.showerror("Channel error", str(e))
+
 
     # ---- scripts: new/load/save
     def refresh_scripts(self):
