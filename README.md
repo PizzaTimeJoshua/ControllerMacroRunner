@@ -1,5 +1,4 @@
 # Controller Macro Runner
--------------------------
 
 #### A Windows desktop app for:
 
