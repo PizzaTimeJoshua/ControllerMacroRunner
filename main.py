@@ -38,7 +38,7 @@ def resource_path(rel_path: str) -> str:
 
 def ffmpeg_path() -> str:
     # Prefer bundled ffmpeg.exe
-    bundled = resource_path("ffmpeg.exe")
+    bundled = resource_path("bin/ffmpeg.exe")
     if os.path.exists(bundled):
         return bundled
     return "ffmpeg"  # fallback to PATH
