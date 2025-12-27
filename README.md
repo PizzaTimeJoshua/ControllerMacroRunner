@@ -278,17 +278,115 @@ def main(frame_payload, x, y):
 
 Commands live in `ScriptEngine._build_default_registry()` as `CommandSpec` entries. To add one:
 
-1. Create a formatter 1 (pretty display)
+1. Create a formatter `fmt_mycmd(c)` (pretty display)
 
-2. Create an executor cmd_mycmd(ctx, c) (runtime behavior)
+2. Create an executor `cmd_mycmd(ctx, c)` (runtime behavior)
 
-3. Register it via CommandSpec(...) with:
+3. Register it via `CommandSpec(...)` with:
 
    - `group` and `order` for the Insert panel
 
    - `arg_schema` so the editor knows how to edit it
 
 See the existing `find_color` implementation for a camera-reading example.
+
+#### Custom Command Tutorial
+
+To add a new command, you generally do 5 things:
+
+1. Decide the command’s JSON shape
+
+    Every script line is a dict with at least:
+
+    ```json
+    { "cmd": "your_command_name", "...": "args" }
+    ```
+
+
+    Pick required fields and optional fields.
+
+    Example target:
+    ```json
+
+    { "cmd": "beep", "freq": 880, "ms": 120 }
+    ```
+
+2. Add a pretty formatter (how it displays in the Script list)
+
+    Inside `_build_default_registry()` (near the other `fmt_*` functions), add:
+    ```python
+    def fmt_beep(c):
+        return f"Beep {c.get('freq', 440)} Hz for {c.get('ms', 100)} ms"
+    ```
+
+    _Optional_, but makes the command appear more clear in the command list.
+
+3. Implement the runtime function `cmd_*`
+
+    Inside `_build_default_registry()` (near the other `cmd_*` functions), add:
+    ```python
+    def cmd_beep(ctx, c):
+        freq = int(resolve_value(ctx, c.get("freq", 440)))
+        ms = int(resolve_value(ctx, c.get("ms", 100)))
+
+        # Your behavior here...
+        # For example: set a variable to prove it ran
+        ctx["vars"]["last_beep"] = {"freq": freq, "ms": ms}
+
+        # If you want delays, prefer the existing wait:
+        # cmd_wait(ctx, {"ms": ms})
+    ```
+
+    Notes:
+
+    - You get access to engine context via ctx:
+
+        - `ctx["vars"] `– variable dict
+
+        - `ctx["get_frame"]()` – latest camera frame (BGR numpy array) or None
+
+        - `ctx["labels"]`, `ctx["if_map"]`, `ctx["while_to_end"]`, etc.
+
+        - `ctx["stop"].is_set()` – stop flag
+
+        - `ctx["ip"]` – current instruction pointer (for jumps)
+
+    If you want your command to support `$var` references, run values through `resolve_value(ctx, ...)` or, for nested lists/dicts, `resolve_vars_deep(ctx, ...)`.
+
+4. Register it with a `CommandSpec`
+
+    Add a new `CommandSpec(...)` entry to the `specs = [...]` list:
+    ```python
+    CommandSpec(
+        "beep",
+        ["freq", "ms"],                 # required keys
+        cmd_beep,                       # runtime function
+        doc="Play a beep sound (example).",
+        arg_schema=[
+            {"key": "freq", "type": "int", "default": 440, "help": "Frequency in Hz"},
+            {"key": "ms", "type": "int", "default": 100, "help": "Duration in milliseconds"},
+        ],
+        format_fn=fmt_beep,
+        group="Custom",
+        order=20
+    ),
+    ```
+
+    What these fields do:
+
+    - `name`: command name used in JSON cmd
+
+    - `required_keys`: validation when loading
+
+    - `fn`: runtime execution
+
+    - `doc`: shown in Insert panel and editor
+
+    - `arg_schema`: drives the Edit dialog UI defaults and field types
+
+    - `format_fn`: nice display string in the script list
+
+    - `group`/`order`: where it appears in the Insert Command panel
 
 #### Packaging as an EXE (Windows)
 
