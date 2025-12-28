@@ -1101,6 +1101,30 @@ class App:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
+        # --- keyboard controller mode (manual control)
+        self.kb_enabled = tk.BooleanVar(value=False)
+        self.kb_bindings = {  # key -> controller button name (must match ALL_BUTTONS entries)
+            "w": "Up",
+            "a": "Left",
+            "s": "Down",
+            "d": "Right",
+            "j": "A",
+            "k": "B",
+            "u": "X",
+            "i": "Y",
+            "enter": "Start",
+            "space": "Select",
+            "q": "L",
+            "e": "R",
+        }
+        self.kb_down = set()         # set of pressed Tk keysyms (normalized)
+        self.kb_buttons_held = set() # controller buttons currently held due to keyboard
+        self._rebinding_target = None  # button being rebound in UI, or None
+
+        # Global key events (manual controller)
+        self.root.bind_all("<KeyPress>", self._on_key_press)
+        self.root.bind_all("<KeyRelease>", self._on_key_release)
+
         # camera state
         self.cam_width = 640
         self.cam_height = 480
@@ -1174,6 +1198,10 @@ class App:
         top.columnconfigure(1, weight=1)
         top.columnconfigure(13, weight=1)
 
+        ttk.Checkbutton(top, text="Keyboard Control", variable=self.kb_enabled,
+                        command=self._on_keyboard_toggle).grid(row=1, column=4, columnspan=2, padx=(10, 6), sticky="w")
+        ttk.Button(top, text="Keybinds…", command=self.open_keybinds_window).grid(row=1, column=6, padx=(0, 6))
+
         # Camera controls
         ttk.Label(top, text="Camera:").grid(row=0, column=0, sticky="w")
         self.cam_var = tk.StringVar()
@@ -1181,7 +1209,7 @@ class App:
         self.cam_combo.grid(row=0, column=1, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
-        self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 18))
+        self.cam_toggle_btn.grid(row=1, column=2, padx=(0, 6))
 
         # Serial controls
         ttk.Label(top, text="COM:").grid(row=0, column=4, sticky="w")
@@ -1215,10 +1243,10 @@ class App:
         self.script_combo.grid(row=0, column=13, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 6))
         ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
-        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 18))
+        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 6))
 
-        ttk.Button(top, text="Save", command=self.save_script).grid(row=0, column=17, padx=(0, 6))
-        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=0, column=18, padx=(0, 6))
+        ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=15, padx=(0, 6))
+        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=1, column=16, padx=(0, 6))
 
         # Run controls
         runbar = ttk.Frame(outer)
@@ -1398,6 +1426,97 @@ class App:
 
         # Build initial insert list
         self.populate_insert_panel()
+
+    def _normalize_keysym(self, event):
+        """
+        Normalize Tk keysym into something consistent for binding lookup.
+        Examples:
+        'w' -> 'w'
+        'W' -> 'w'
+        'Return' -> 'enter'
+        'space' -> 'space'
+        """
+        ks = event.keysym
+        if not ks:
+            return None
+        ks = ks.lower()
+        if ks == "return":
+            ks = "enter"
+        return ks
+
+    def _manual_control_allowed(self):
+        # Only allow manual keyboard control when:
+        # - enabled
+        # - serial connected
+        # - script NOT running
+        return bool(self.kb_enabled.get()) and self.serial.connected and (not self.engine.running)
+
+    def _on_keyboard_toggle(self):
+        # Turning off: release everything
+        if not self.kb_enabled.get():
+            self._release_all_keyboard_buttons()
+            self.set_status("Keyboard Control: OFF")
+            return
+
+        # Turning on: if script running, disallow
+        if self.engine.running:
+            self.kb_enabled.set(False)
+            messagebox.showwarning("Keyboard Control", "Stop the script before enabling keyboard control.")
+            return
+
+        if not self.serial.connected:
+            # allow toggling on, but it won't do anything until connected
+            self.set_status("Keyboard Control: ON (connect serial to use)")
+        else:
+            self.set_status("Keyboard Control: ON")
+
+    def _release_all_keyboard_buttons(self):
+        self.kb_down.clear()
+        self.kb_buttons_held.clear()
+        # go neutral only if script not running
+        if not self.engine.running and self.serial.connected:
+            self.serial.set_state(0, 0)
+
+    def _on_key_press(self, event):
+        if not self._manual_control_allowed():
+            return
+
+        ks = self._normalize_keysym(event)
+        if not ks:
+            return
+
+        # Prevent repeat spamming (Tk sends repeats while held)
+        if ks in self.kb_down:
+            return
+        self.kb_down.add(ks)
+
+        btn = self.kb_bindings.get(ks)
+        if not btn:
+            return
+
+        self.kb_buttons_held.add(btn)
+        self.serial.set_buttons(sorted(self.kb_buttons_held))
+
+    def _on_key_release(self, event):
+        if not self._manual_control_allowed():
+            return
+
+        ks = self._normalize_keysym(event)
+        if not ks:
+            return
+
+        if ks in self.kb_down:
+            self.kb_down.remove(ks)
+
+        btn = self.kb_bindings.get(ks)
+        if not btn:
+            return
+
+        if btn in self.kb_buttons_held:
+            self.kb_buttons_held.remove(btn)
+
+        self.serial.set_buttons(sorted(self.kb_buttons_held))
+
 
     def _copy_to_clipboard(self, text: str):
         try:
@@ -1683,6 +1802,107 @@ class App:
         except Exception as e:
             messagebox.showerror("Channel error", str(e))
 
+    def open_keybinds_window(self):
+        win = tk.Toplevel(self.root)
+        win.title("Keybinds")
+        win.transient(self.root)
+        win.grab_set()
+
+        # info
+        info = ttk.Label(win, text="Keyboard Control is active only when no script is running.\n"
+                                "Click Rebind, then press a key. Keys are shown as Tk keysyms.")
+        info.grid(row=0, column=0, columnspan=4, sticky="w", padx=10, pady=(10, 6))
+
+        # tree
+        tree = ttk.Treeview(win, columns=("button", "key"), show="headings", height=12)
+        tree.heading("button", text="Controller Button")
+        tree.heading("key", text="Key")
+        tree.column("button", width=160, anchor="w")
+        tree.column("key", width=120, anchor="w")
+        tree.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=10)
+
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(1, weight=1)
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            # invert mapping: button -> keys (allow multiple keys if desired)
+            inv = {b: [] for b in ALL_BUTTONS}
+            for k, b in self.kb_bindings.items():
+                if b in inv:
+                    inv[b].append(k)
+            for b in ALL_BUTTONS:
+                keys = ", ".join(sorted(inv[b])) if inv[b] else ""
+                tree.insert("", "end", values=(b, keys))
+
+        refresh()
+
+        def get_selected_button():
+            sel = tree.selection()
+            if not sel:
+                return None
+            vals = tree.item(sel[0], "values")
+            return vals[0] if vals else None
+
+        def rebind():
+            b = get_selected_button()
+            if not b:
+                messagebox.showinfo("Rebind", "Select a controller button first.", parent=win)
+                return
+            self._rebinding_target = b
+            status_var.set(f"Press a key to bind to {b} (Esc cancels)…")
+
+        def clear_binding():
+            b = get_selected_button()
+            if not b:
+                return
+            # remove all keys mapping to this button
+            to_del = [k for k, btn in self.kb_bindings.items() if btn == b]
+            for k in to_del:
+                del self.kb_bindings[k]
+            refresh()
+
+        def restore_defaults():
+            self.kb_bindings = {
+                "w": "Up", "a": "Left", "s": "Down", "d": "Right",
+                "j": "A", "k": "B", "u": "X", "i": "Y",
+                "enter": "Start", "space": "Select",
+                "q": "L", "e": "R",
+            }
+            refresh()
+
+        status_var = tk.StringVar(value="Select a button and click Rebind.")
+        ttk.Label(win, textvariable=status_var, foreground="gray").grid(row=2, column=0, columnspan=4, sticky="w", padx=10, pady=(6, 0))
+
+        btnrow = ttk.Frame(win)
+        btnrow.grid(row=3, column=0, columnspan=4, sticky="ew", padx=10, pady=10)
+
+        ttk.Button(btnrow, text="Rebind…", command=rebind).pack(side="left")
+        ttk.Button(btnrow, text="Clear", command=clear_binding).pack(side="left", padx=(6, 0))
+        ttk.Button(btnrow, text="Restore defaults", command=restore_defaults).pack(side="left", padx=(6, 0))
+        ttk.Button(btnrow, text="Close", command=win.destroy).pack(side="right")
+
+        # Capture key presses while rebinding
+        def on_key(event):
+            if self._rebinding_target is None:
+                return
+            ks = (event.keysym or "").lower()
+            if ks == "escape":
+                self._rebinding_target = None
+                status_var.set("Rebind cancelled.")
+                return
+
+            if ks == "return":
+                ks = "enter"
+
+            # Ensure uniqueness: remove this key if already bound
+            self.kb_bindings[ks] = self._rebinding_target
+            status_var.set(f"Bound {ks} -> {self._rebinding_target}")
+            self._rebinding_target = None
+            refresh()
+
+        win.bind("<KeyPress>", on_key)
+
 
     # ---- scripts: new/load/save
     def refresh_scripts(self):
@@ -1955,6 +2175,10 @@ class App:
             self.vars_tree.insert("", "end", values=(k, json.dumps(v, ensure_ascii=False)))
 
     def run_script(self):
+        if self.kb_enabled.get():
+            # Turn off manual so we don't fight the script
+            self.kb_enabled.set(False)
+            self._release_all_keyboard_buttons()
         try:
             self.engine.rebuild_indexes(strict=True)  # strict only when running
             self.engine.run()
