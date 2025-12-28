@@ -25,6 +25,11 @@ import serial
 from serial.tools import list_ports
 import sys
 import base64
+import socket
+import struct
+from dataclasses import dataclass, field
+from enum import IntEnum
+from typing import Tuple, Optional
 
 
 def resource_path(rel_path: str) -> str:
@@ -268,8 +273,9 @@ class SerialController:
         self.status_cb(f"Sent channel set: 0x{ch:02X} (power cycle receiver required)")
 
     def _keepalive_loop(self):
+
         while self._running:
-            if not self.connected:
+            if not self.connected or (app.backend_var.get() != "USB Serial"):
                 break
             with self._lock:
                 high = self._high
@@ -280,6 +286,181 @@ class SerialController:
                 self.status_cb(f"Serial write error: {e}")
                 break
             time.sleep(self.interval_s)
+
+
+# -----------------------------
+# 3DS Input Redirection backend
+# -----------------------------
+
+TOUCH_W_PX = 320
+TOUCH_H_PX = 240
+HID_AXIS_MAX = 0xFFF
+
+def clamp(v: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, v))
+
+def px_to_hid(x_px: int, y_px: int) -> Tuple[int, int]:
+    # Your priority snippet used integer multipliers for precision.
+    x = x_px * 12
+    y = y_px * 17
+    return clamp(x, 0, HID_AXIS_MAX), clamp(y, 0, HID_AXIS_MAX)
+
+class ThreeDSButton(IntEnum):
+    A = 0
+    B = 1
+    SELECT = 2
+    START = 3
+    RIGHT = 4
+    LEFT = 5
+    UP = 6
+    DOWN = 7
+    R = 8
+    L = 9
+    X = 10
+    Y = 11
+    ZL = 14
+    ZR = 15
+
+class ThreeDSInterfaceButton(IntEnum):
+    HOME = 0
+    POWER = 1
+
+@dataclass
+class ThreeDSClient:
+    ip: str
+    port: int = 4950
+
+    # Default values (from your priority snippet)
+    hid_pad: bytearray = field(default_factory=lambda: bytearray.fromhex("ff 0f 00 00"))
+    touch_state: bytearray = field(default_factory=lambda: bytearray.fromhex("00 00 00 02"))
+    circle_pad: bytearray = field(default_factory=lambda: bytearray.fromhex("ff f7 7f 00"))
+    cpp_state: bytearray = field(default_factory=lambda: bytearray.fromhex("81 00 80 80"))
+    interface_buttons: bytearray = field(default_factory=lambda: bytearray.fromhex("00 00 00 00"))
+
+    _sock: socket.socket = field(init=False, repr=False)
+    _addr: tuple = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._addr = (self.ip, self.port)
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setblocking(False)
+
+    @staticmethod
+    def _set_bit(arr: bytearray, bit_index: int) -> None:
+        byte_i, bit = divmod(bit_index, 8)
+        arr[byte_i] ^= (1 << bit)
+
+    # Sends 20-byte packet
+    def send_update(self) -> None:
+        packet = self.hid_pad + self.touch_state + self.circle_pad + self.cpp_state + self.interface_buttons
+        self._sock.sendto(packet, self._addr)
+
+    # Clears Touch Screen Inputs
+    def reset_touch(self) -> None:
+        self.touch_state[:] = bytearray.fromhex("00 00 00 02")
+
+    # Touch Screen (press/hold)
+    def press_touch(self, x_px: int, y_px: int) -> None:
+        x12, y12 = px_to_hid(x_px, y_px)
+        xy = (y12 << 12) | x12
+        data = bytearray(struct.pack("<I", xy))
+        data[3] = 1
+        self.touch_state[:] = data
+
+    # Held buttons API (clean for our app)
+    def set_buttons_held(
+        self,
+        pressed: set[ThreeDSButton],
+        pressed_iface: set[ThreeDSInterfaceButton] = set()
+    ) -> None:
+        # Reset to default idle then toggle bits for pressed
+        self.hid_pad[:] = bytearray.fromhex("ff 0f 00 00")
+        for b in pressed:
+            self._set_bit(self.hid_pad, int(b))
+
+        self.interface_buttons[:] = bytearray.fromhex("00 00 00 00")
+        for b in pressed_iface:
+            self._set_bit(self.interface_buttons, int(b))
+
+    def reset_neutral(self) -> None:
+        # Neutral = no buttons, touch cleared, neutral circle/cpp/interface
+        self.hid_pad[:] = bytearray.fromhex("ff 0f 00 00")
+        self.reset_touch()
+        self.circle_pad[:] = bytearray.fromhex("ff f7 7f 00")
+        self.cpp_state[:] = bytearray.fromhex("81 00 80 80")
+        self.interface_buttons[:] = bytearray.fromhex("00 00 00 00")
+
+
+class ThreeDSBackend:
+    """
+    Backend used by the app when Output Backend = 3DS Input Redirection.
+    """
+    def __init__(self, ip: str, port: int = 4950):
+        self.ip = ip
+        self.port = port
+        self.client = ThreeDSClient(ip=ip, port=port)
+        self._connected = True  # UDP is stateless; treat as enabled
+
+        self._pressed: set[ThreeDSButton] = set()
+        self._pressed_iface: set[ThreeDSInterfaceButton] = set()
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    def connect(self):
+        self._connected = True
+
+    def disconnect(self):
+        # Best effort neutral on disconnect
+        try:
+            self._select_active_backend()
+            if self.active_backend and getattr(self.active_backend, "connected", False):
+                # prefer backend reset if available; else neutral buttons
+                if hasattr(self.active_backend, "reset_neutral"):
+                    self.active_backend.reset_neutral()
+                else:
+                    self.active_backend.set_buttons([])
+
+        except Exception:
+            pass
+        self._connected = False
+
+    def set_buttons(self, buttons: list[str]):
+        """
+        buttons are app-level names, e.g. ["A","Up","L"] etc.
+        """
+        mapping = {
+            "A": ThreeDSButton.A, "B": ThreeDSButton.B, "X": ThreeDSButton.X, "Y": ThreeDSButton.Y,
+            "Up": ThreeDSButton.UP, "Down": ThreeDSButton.DOWN, "Left": ThreeDSButton.LEFT, "Right": ThreeDSButton.RIGHT,
+            "L": ThreeDSButton.L, "R": ThreeDSButton.R,
+            "Start": ThreeDSButton.START, "Select": ThreeDSButton.SELECT,
+            "ZL": ThreeDSButton.ZL, "ZR": ThreeDSButton.ZR,
+        }
+        pressed = set()
+        for b in buttons:
+            if b in mapping:
+                pressed.add(mapping[b])
+
+        self._pressed = pressed
+        self.client.set_buttons_held(self._pressed, self._pressed_iface)
+        self.client.send_update()
+
+    def tap_touch(self, x_px: int, y_px: int, down_time: float = 0.1, settle: float = 0.1):
+        # Down
+        self.client.press_touch(int(x_px), int(y_px))
+        self.client.send_update()
+        if down_time > 0:
+            time.sleep(float(down_time))
+        # Up
+        self.client.reset_touch()
+        self.client.send_update()
+        if settle > 0:
+            time.sleep(float(settle))
+
+    def reset_neutral(self):
+        self.client.reset_neutral()
+        self.client.send_update()
 
 
 # ----------------------------
@@ -424,6 +605,17 @@ class ScriptEngine:
         self.running = False
         self.ip = 0
 
+        self._backend_getter = None
+
+    def set_backend_getter(self, fn):
+        self._backend_getter = fn
+
+    def get_backend(self):
+        if self._backend_getter:
+            return self._backend_getter()
+        return None
+
+
     def ordered_specs(self):
         """
         Returns list of (name, spec) sorted by (group, order, name).
@@ -470,11 +662,11 @@ class ScriptEngine:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
-        self._stop.clear()
         self.running = False
         self.serial.set_state(0, 0)
         self.status_cb("Script stopped.")
         self.on_ip_update(-1)
+        self.ip = 0
 
     def run(self):
         if not self.serial.connected:
@@ -499,6 +691,7 @@ class ScriptEngine:
             "stop": self._stop,
             "get_frame": self.get_frame,
             "ip": self.ip,
+            "get_backend": self.get_backend,
         }
 
         try:
@@ -525,6 +718,8 @@ class ScriptEngine:
         finally:
             self.running = False
             self.on_ip_update(-1)
+            self.ip = 0
+            self._stop.clear()
 
     def _build_default_registry(self):
         reg = {}
@@ -554,6 +749,8 @@ class ScriptEngine:
             a = "" if not args else f" args={args}"
             o = "" if not out else f" -> ${out}"
             return f"RunPython {c.get('file')}{a}{o}"
+        def fmt_tap_touch(c):
+            return f"TapTouch x={c.get('x')} y={c.get('y')} down={c.get('down_time', 0.1)} settle={c.get('settle', 0.1)}"
 
 
         # ---- execution fns
@@ -566,14 +763,36 @@ class ScriptEngine:
                 time.sleep(0.01)
 
         def cmd_press(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+
             buttons = c.get("buttons", [])
-            ms = int(c.get("ms", 50))
-            self.serial.set_buttons(buttons)
-            cmd_wait(ctx, {"ms": ms})
-            self.serial.set_state(0, 0)
+            if not isinstance(buttons, list):
+                raise ValueError("press: buttons must be a list")
+
+            # Resolve variable refs in buttons list if you support it; otherwise leave:
+            backend.set_buttons(buttons)
+
+            ms = int(resolve_value(ctx, c.get("ms", 60)))
+            if ms > 0:
+                time.sleep(ms / 1000.0)
+
+            # release
+            backend.set_buttons([])
+
 
         def cmd_hold(ctx, c):
-            self.serial.set_buttons(c.get("buttons", []))
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                raise ValueError("hold: buttons must be a list")
+
+            backend.set_buttons(buttons)
+
 
         def cmd_label(ctx, c):
             pass
@@ -665,6 +884,20 @@ class ScriptEngine:
             outvar = (c.get("out") or "").strip()
             if outvar:
                 ctx["vars"][outvar] = res
+        def cmd_tap_touch(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+
+            if not hasattr(backend, "tap_touch"):
+                raise RuntimeError("tap_touch is only supported by the 3DS backend.")
+
+            x = int(resolve_value(ctx, c.get("x")))
+            y = int(resolve_value(ctx, c.get("y")))
+            down_time = float(resolve_value(ctx, c.get("down_time", 0.1)))
+            settle = float(resolve_value(ctx, c.get("settle", 0.1)))
+
+            backend.tap_touch(x, y, down_time=down_time, settle=settle)
 
 
 
@@ -810,6 +1043,21 @@ class ScriptEngine:
                 group="Custom",
                 order=10
             ),
+            CommandSpec(
+                "tap_touch",
+                ["x", "y"],
+                cmd_tap_touch,
+                doc="3DS only: taps the touchscreen at (x,y).",
+                arg_schema=[
+                    {"key":"x","type":"int","default":160, "help":"X pixel (0..319)"},
+                    {"key":"y","type":"int","default":120, "help":"Y pixel (0..239)"},
+                    {"key":"down_time","type":"float","default":0.1, "help":"Seconds to hold touch down"},
+                    {"key":"settle","type":"float","default":0.1, "help":"Seconds to wait after release"},
+                ],
+                format_fn=fmt_tap_touch,
+                group="3DS",
+                order=10
+            ),
 
         ]
 
@@ -914,6 +1162,13 @@ class CommandEditorDialog(tk.Toplevel):
                 init_val = initial_cmd[key]
 
             if ftype == "int":
+                var = tk.StringVar(value=str(init_val))
+                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                ent.grid(row=r, column=1, sticky="ew", pady=3)
+                self.field_vars[key] = var
+                self.widgets[key] = ent
+
+            elif ftype == "float":
                 var = tk.StringVar(value=str(init_val))
                 ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
                 ent.grid(row=r, column=1, sticky="ew", pady=3)
@@ -1127,7 +1382,7 @@ class App:
 
         # camera state
         self.cam_width = 640
-        self.cam_height = 480
+        self.cam_height = 426
         self.cam_fps = 30
         self.cam_proc = None
         self.cam_thread = None
@@ -1141,6 +1396,7 @@ class App:
         self.camera_panel_hidden = False
         self._saved_sash_x = None
         self.base_video_width = 640  # adjust if you want
+    
 
 
 
@@ -1153,6 +1409,17 @@ class App:
             on_ip_update=self.on_ip_update,
             on_tick=self.on_engine_tick,
         )
+        
+        # Output backend selection
+        self.backend_var = tk.StringVar(value="USB Serial")  # "USB Serial" or "3DS Input Redirection"
+        self.threeds_ip_var = tk.StringVar(value="192.168.1.1")
+        self.threeds_port_var = tk.StringVar(value="4950")
+        self.threeds_backend: Optional[ThreeDSBackend] = None
+
+        # Active backend points to either self.serial or self.threeds_backend
+        self.active_backend = self.serial
+
+        self.engine.set_backend_getter(lambda: self.active_backend)
 
         self._build_ui()
         self._build_context_menu()
@@ -1225,7 +1492,7 @@ class App:
         )
         self.ratio_combo.grid(row=1, column=1, sticky="ew", padx=(6, 6))
 
-        ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 12))
+        ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 6))
 
 
 
@@ -1252,6 +1519,40 @@ class App:
         self.chan_combo.grid(row=0, column=9, sticky="w", padx=(6, 6))
 
         ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
+
+
+        ttk.Label(top, text="Output:").grid(row=1, column=7, sticky="w", padx=(8, 2))
+
+        self.backend_combo = ttk.Combobox(
+            top, textvariable=self.backend_var, state="readonly",
+            values=["USB Serial", "3DS Input Redirection"], width=20
+        )
+        self.backend_combo.grid(row=1, column=8, sticky="w", padx=(4, 8))
+        self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
+
+        # 3DS config (shown/hidden)
+        self.threeds_ip_label = ttk.Label(top, text="3DS IP:")
+        self.threeds_ip_entry = ttk.Entry(top, textvariable=self.threeds_ip_var, width=14)
+
+        self.threeds_port_label = ttk.Label(top, text="Port:")
+        self.threeds_port_entry = ttk.Entry(top, textvariable=self.threeds_port_var, width=6)
+
+        self.threeds_enable_btn = ttk.Button(top, text="Enable 3DS", command=self.enable_threeds_backend)
+        self.threeds_disable_btn = ttk.Button(top, text="Disable 3DS", command=self.disable_threeds_backend)
+
+        # place them (we'll hide/show in on_backend_changed)
+        self.threeds_ip_label.grid(row=1, column=9, sticky="w")
+        self.threeds_ip_entry.grid(row=1, column=10, sticky="w", padx=(4, 8))
+
+        self.threeds_port_label.grid(row=1, column=11, sticky="w")
+        self.threeds_port_entry.grid(row=1, column=12, sticky="w", padx=(4, 8))
+
+        self.threeds_enable_btn.grid(row=1, column=13, sticky="w", padx=(0, 6))
+        self.threeds_disable_btn.grid(row=1, column=14, sticky="w")
+
+        # initialize visibility
+        self.on_backend_changed()
+
 
 
         # Script file controls
@@ -1513,7 +1814,10 @@ class App:
             return
 
         self.kb_buttons_held.add(btn)
-        self.serial.set_buttons(sorted(self.kb_buttons_held))
+        self._select_active_backend()
+        if self.active_backend and getattr(self.active_backend, "connected", False):
+            self.active_backend.set_buttons(sorted(self.kb_buttons_held))
+
 
     def _on_key_release(self, event):
         if not self._manual_control_allowed():
@@ -1533,7 +1837,10 @@ class App:
         if btn in self.kb_buttons_held:
             self.kb_buttons_held.remove(btn)
 
-        self.serial.set_buttons(sorted(self.kb_buttons_held))
+        self._select_active_backend()
+        if self.active_backend and getattr(self.active_backend, "connected", False):
+            self.active_backend.set_buttons(sorted(self.kb_buttons_held))
+
 
 
     def _copy_to_clipboard(self, text: str):
@@ -1594,6 +1901,16 @@ class App:
         return None
 
 
+    def _select_active_backend(self):
+        if self.backend_var.get() == "3DS Input Redirection":
+            if self.threeds_backend and self.threeds_backend.connected:
+                self.active_backend = self.threeds_backend
+            else:
+                # Not enabled yet; still point to a disconnected backend if it exists
+                self.active_backend = self.threeds_backend or self.serial
+        else:
+            self.active_backend = self.serial
+            
 
     
     def _on_first_configure(self, event):
@@ -1792,7 +2109,7 @@ class App:
         self.set_status("Camera panel shown.")
 
     def apply_video_ratio(self):
-        ratio = (self.ratio_var.get() or "4:3").strip()
+        ratio = (self.ratio_var.get()).strip()
 
         # choose width based on base_video_width, compute height from ratio
         w = int(self.base_video_width)
@@ -2022,6 +2339,86 @@ class App:
 
         win.bind("<KeyPress>", on_key)
 
+    def on_backend_changed(self):
+        is_3ds = (self.backend_var.get() == "3DS Input Redirection")
+
+        # Show/hide 3DS widgets
+        widgets = [
+            self.threeds_ip_label, self.threeds_ip_entry,
+            self.threeds_port_label, self.threeds_port_entry,
+            self.threeds_enable_btn, self.threeds_disable_btn
+        ]
+        for w in widgets:
+            if is_3ds:
+                w.grid()  # show
+            else:
+                w.grid_remove()  # hide
+
+        # Optional: disable serial-specific UI when using 3DS
+        # If you have serial COM widgets like self.com_combo, self.connect_btn, disable them:
+        if hasattr(self, "com_combo"):
+            try:
+                state = "disabled" if is_3ds else "readonly"
+                self.com_combo.configure(state=state)
+            except Exception:
+                pass
+        if hasattr(self, "connect_btn"):
+            try:
+                self.connect_btn.configure(state=("disabled" if is_3ds else "normal"))
+            except Exception:
+                pass
+
+        # Switch active backend pointer
+        self._select_active_backend()
+
+        self.set_status(f"Output backend set to: {self.backend_var.get()}")
+
+    def enable_threeds_backend(self):
+        if self.engine.running:
+            messagebox.showwarning("3DS", "Stop the script before enabling/changing 3DS backend.")
+            return
+
+        ip = (self.threeds_ip_var.get() or "").strip()
+        if not ip:
+            messagebox.showerror("3DS", "Please enter a 3DS IP address.")
+            return
+        try:
+            port = int((self.threeds_port_var.get() or "4950").strip())
+        except ValueError:
+            messagebox.showerror("3DS", "Port must be a number.")
+            return
+
+        try:
+            self.threeds_backend = ThreeDSBackend(ip=ip, port=port)
+            self.threeds_backend.connect()
+            self.backend_var.set("3DS Input Redirection")
+            self._select_active_backend()
+            self.set_status(f"3DS backend enabled: {ip}:{port}")
+        except Exception as e:
+            messagebox.showerror("3DS", str(e))
+
+    def disable_threeds_backend(self):
+        try:
+            if self.threeds_backend:
+                self.threeds_backend.disconnect()
+        except Exception:
+            pass
+        self.threeds_backend = None
+        self.backend_var.set("USB Serial")
+        self._select_active_backend()
+        self.set_status("3DS backend disabled.")
+
+    def reset_output_neutral(self):
+        self._select_active_backend()
+        b = self.active_backend
+        if b and getattr(b, "connected", False):
+            try:
+                if hasattr(b, "reset_neutral"):
+                    b.reset_neutral()
+                else:
+                    b.set_buttons([])
+            except Exception:
+                pass
 
     # ---- scripts: new/load/save
     def refresh_scripts(self):
@@ -2308,6 +2705,7 @@ class App:
     def stop_script(self):
         if self.engine.running:
             self.engine.stop()
+            self.reset_output_neutral()
             self.highlight_ip(-1)
 
     # ---- ip highlight
