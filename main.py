@@ -1138,6 +1138,9 @@ class App:
         self._last_video_xy = None  # (x,y) in frame coords or None
         self._disp_img_w = 0
         self._disp_img_h = 0
+        self.camera_panel_hidden = False
+        self._saved_sash_x = None
+        self.base_video_width = 640  # adjust if you want
 
 
 
@@ -1209,7 +1212,22 @@ class App:
         self.cam_combo.grid(row=0, column=1, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
-        self.cam_toggle_btn.grid(row=1, column=2, padx=(0, 6))
+        self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
+
+        ttk.Button(top, text="Hide Cam", command=self.toggle_camera_panel).grid(row=1, column=3, padx=(0, 6))
+
+        ttk.Label(top, text="Ratio:").grid(row=1, column=0, sticky="w")
+
+        self.ratio_var = tk.StringVar(value="3:2 (GBA)")
+        self.ratio_combo = ttk.Combobox(
+            top, textvariable=self.ratio_var, state="readonly",
+            values=["3:2 (GBA)","16:9 (Standard)","4:3 (DS Single Screen)", "2:3 (DS Dual Screen)", "5:3 (3DS Top Screen)", "5:6 (3DS Dual Screen)"], width=6
+        )
+        self.ratio_combo.grid(row=1, column=1, sticky="ew", padx=(6, 6))
+
+        ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 12))
+
+
 
         # Serial controls
         ttk.Label(top, text="COM:").grid(row=0, column=4, sticky="w")
@@ -1298,8 +1316,8 @@ class App:
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
 
-        main.add(left, minsize=320)
-        main.add(right, minsize=380)
+        main.add(left, minsize=0)
+        main.add(right, minsize=320)
 
         self.main_pane = main
 
@@ -1703,6 +1721,9 @@ class App:
 
         self.cam_thread = threading.Thread(target=self._camera_reader_loop, daemon=True)
         self.cam_thread.start()
+        # Ensure visible when camera starts
+        self.show_camera_panel()
+
 
     def stop_camera(self):
         self.cam_running = False
@@ -1717,6 +1738,104 @@ class App:
         with self.frame_lock:
             self.latest_frame_bgr = None
         self.set_status("Camera stopped.")
+        # Auto-hide if camera stopped
+        self.hide_camera_panel()
+
+
+    def toggle_camera_panel(self):
+        if self.camera_panel_hidden:
+            self.show_camera_panel()
+        else:
+            self.hide_camera_panel()
+
+    def hide_camera_panel(self):
+        # Save current sash position so we can restore it
+        try:
+            self.main_pane.update_idletasks()
+            if hasattr(self.main_pane, "sashpos"):
+                self._saved_sash_x = self.main_pane.sashpos(0)
+            else:
+                # tk.PanedWindow doesn't provide a getter; store a reasonable default
+                self._saved_sash_x = int(self.main_pane.winfo_width() * 0.45)
+        except Exception:
+            self._saved_sash_x = int(self.main_pane.winfo_width() * 0.45)
+
+        # Collapse left pane
+        try:
+            if hasattr(self.main_pane, "sashpos"):
+                self.main_pane.sashpos(0, 0)
+            else:
+                self.main_pane.sash_place(0, 0, 0)
+        except Exception:
+            pass
+
+        self.camera_panel_hidden = True
+        self.set_status("Camera panel hidden.")
+
+    def show_camera_panel(self):
+        try:
+            self.main_pane.update_idletasks()
+            total = self.main_pane.winfo_width()
+            x = self._saved_sash_x
+            if x is None or x < 150:
+                x = int(total * 0.45)  # default restore
+            x = max(220, min(x, total - 220))  # keep both panes usable
+
+            if hasattr(self.main_pane, "sashpos"):
+                self.main_pane.sashpos(0, x)
+            else:
+                self.main_pane.sash_place(0, x, 0)
+        except Exception:
+            pass
+
+        self.camera_panel_hidden = False
+        self.set_status("Camera panel shown.")
+
+    def apply_video_ratio(self):
+        ratio = (self.ratio_var.get() or "4:3").strip()
+
+        # choose width based on base_video_width, compute height from ratio
+        w = int(self.base_video_width)
+
+        if ratio == "4:3 (DS Single Screen)":
+            h = int(round(w * 3 / 4))
+        elif ratio == "3:2 (GBA)":
+            h = int(round(w * 2 / 3))
+        elif ratio == "16:9 (Standard)":
+            h = int(round(w * 9 / 16))
+        elif ratio == "2:3 (DS Dual Screen)":
+            h = int(round(w * 3 / 2))
+        elif ratio == "5:3 (3DS Top Screen)":
+            h = int(round(w * 3 / 5))
+
+        elif ratio == "5:6 (3DS Dual Screen)":
+            h = int(round(w * 6 / 5))
+        else:
+            messagebox.showerror("Ratio", f"Unknown ratio: {ratio}")
+            return
+
+        # Force even dims (some devices/filters behave better)
+        w = max(160, (w // 2) * 2)
+        h = max(120, (h // 2) * 2)
+
+        # Apply to camera pipeline
+        was_running = self.cam_running
+        if was_running:
+            self.stop_camera()
+
+        self.cam_width = w
+        self.cam_height = h
+
+        # Clear stored display size so coordinate mapper stays correct
+        self._disp_img_w = 0
+        self._disp_img_h = 0
+
+        self.set_status(f"Video ratio set to {ratio} ({w}x{h}).")
+
+        if was_running:
+            self.start_camera()
+
+
 
     def _camera_reader_loop(self):
         if not self.cam_proc or not self.cam_proc.stdout:
