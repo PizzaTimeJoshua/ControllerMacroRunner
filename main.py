@@ -1355,6 +1355,7 @@ class App:
         self.root.title("Controller Macro Runner")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        self.root.geometry("1200x700")
 
         # --- keyboard controller mode (manual control)
         self.kb_enabled = tk.BooleanVar(value=False)
@@ -1393,7 +1394,7 @@ class App:
         self._last_video_xy = None  # (x,y) in frame coords or None
         self._disp_img_w = 0
         self._disp_img_h = 0
-        self.camera_panel_hidden = False
+        self.camera_panel_hidden = True
         self._saved_sash_x = None
         self.base_video_width = 640  # adjust if you want
     
@@ -1479,11 +1480,12 @@ class App:
         self.cam_combo.grid(row=0, column=1, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
-        self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
+        self.cam_toggle_btn.grid(row=0, column=3, padx=(6, 6))
 
-        ttk.Button(top, text="Hide Cam", command=self.toggle_camera_panel).grid(row=1, column=3, padx=(0, 6))
+        self.cam_display_btn = ttk.Button(top, text="Show Cam", command=self.toggle_camera_panel)
+        self.cam_display_btn.grid(row=1, column=3, padx=(6,6))
 
-        ttk.Label(top, text="Ratio:").grid(row=1, column=0, sticky="w")
+        ttk.Label(top, text="Cam Ratio:").grid(row=1, column=0, sticky="w")
 
         self.ratio_var = tk.StringVar(value="3:2 (GBA)")
         self.ratio_combo = ttk.Combobox(
@@ -1520,19 +1522,19 @@ class App:
 
         ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
 
-
-        ttk.Label(top, text="Output:").grid(row=1, column=7, sticky="w", padx=(8, 2))
+        # Backend Selectors
+        ttk.Label(top, text="Output:").grid(row=2, column=0, sticky="w")
 
         self.backend_combo = ttk.Combobox(
             top, textvariable=self.backend_var, state="readonly",
             values=["USB Serial", "3DS Input Redirection"], width=20
         )
-        self.backend_combo.grid(row=1, column=8, sticky="w", padx=(4, 8))
+        self.backend_combo.grid(row=2, column=1, sticky="ew", padx=(6, 6),pady=(4,0))
         self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
 
         # 3DS config (shown/hidden)
         self.threeds_ip_label = ttk.Label(top, text="3DS IP:")
-        self.threeds_ip_entry = ttk.Entry(top, textvariable=self.threeds_ip_var, width=14)
+        self.threeds_ip_entry = ttk.Entry(top, textvariable=self.threeds_ip_var, width=12)
 
         self.threeds_port_label = ttk.Label(top, text="Port:")
         self.threeds_port_entry = ttk.Entry(top, textvariable=self.threeds_port_var, width=6)
@@ -1541,14 +1543,14 @@ class App:
         self.threeds_disable_btn = ttk.Button(top, text="Disable 3DS", command=self.disable_threeds_backend)
 
         # place them (we'll hide/show in on_backend_changed)
-        self.threeds_ip_label.grid(row=1, column=9, sticky="w")
-        self.threeds_ip_entry.grid(row=1, column=10, sticky="w", padx=(4, 8))
+        self.threeds_ip_label.grid(row=2, column=2, sticky="w")
+        self.threeds_ip_entry.grid(row=2, column=3, sticky="w", padx=(4, 8))
 
-        self.threeds_port_label.grid(row=1, column=11, sticky="w")
-        self.threeds_port_entry.grid(row=1, column=12, sticky="w", padx=(4, 8))
+        self.threeds_port_label.grid(row=2, column=4, sticky="w")
+        self.threeds_port_entry.grid(row=2, column=5, sticky="w", padx=(4, 8))
 
-        self.threeds_enable_btn.grid(row=1, column=13, sticky="w", padx=(0, 6))
-        self.threeds_disable_btn.grid(row=1, column=14, sticky="w")
+        self.threeds_enable_btn.grid(row=2, column=6, sticky="w", padx=(0, 6))
+        self.threeds_disable_btn.grid(row=2, column=7, sticky="w")
 
         # initialize visibility
         self.on_backend_changed()
@@ -1746,6 +1748,7 @@ class App:
         # Build initial insert list
         self.populate_insert_panel()
 
+
     def _normalize_keysym(self, event):
         """
         Normalize Tk keysym into something consistent for binding lookup.
@@ -1936,7 +1939,7 @@ class App:
                 return
 
             # Make video bigger by default
-            x = int(total * 0.50)  # 68% left video, 32% right scripts
+            x = int(total * 0.0)  # 
 
             # ttk.PanedWindow uses sashpos; tk.PanedWindow uses sash_place
             if hasattr(self.main_pane, "sashpos"):
@@ -2088,6 +2091,7 @@ class App:
 
         self.camera_panel_hidden = True
         self.set_status("Camera panel hidden.")
+        self.cam_display_btn.configure(text="Show Cam")
 
     def show_camera_panel(self):
         try:
@@ -2107,6 +2111,7 @@ class App:
 
         self.camera_panel_hidden = False
         self.set_status("Camera panel shown.")
+        self.cam_display_btn.configure(text="Hide Cam")
 
     def apply_video_ratio(self):
         ratio = (self.ratio_var.get()).strip()
@@ -2407,6 +2412,7 @@ class App:
         self.backend_var.set("USB Serial")
         self._select_active_backend()
         self.set_status("3DS backend disabled.")
+        self.on_backend_changed()
 
     def reset_output_neutral(self):
         self._select_active_backend()
