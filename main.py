@@ -99,11 +99,13 @@ def list_python_files():
 # ----------------------------
 
 class CommandEditorDialog(tk.Toplevel):
-    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command"):
+    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",test_callback = None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
         self.result = None
+        self.test_callback = test_callback
+
 
         self.title(title)
         self.transient(parent)
@@ -139,6 +141,8 @@ class CommandEditorDialog(tk.Toplevel):
         bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         ttk.Button(bottom, text="Cancel", command=self._cancel).pack(side="right", padx=(6, 0))
         ttk.Button(bottom, text="Save", command=self._save).pack(side="right")
+        self.test_btn = ttk.Button(bottom, text="Test", command=self._test)
+        self.test_btn.pack(side="right", padx=(0, 6))
 
         self.cmd_combo.bind("<<ComboboxSelected>>", lambda e: self._render_fields())
 
@@ -289,6 +293,13 @@ class CommandEditorDialog(tk.Toplevel):
             ttk.Label(self.fields_frame, text=help_text, foreground="gray").grid(row=r, column=2, sticky="w", padx=(8, 0))
 
         self.fields_frame.columnconfigure(1, weight=1)
+        # Enable Test only if provided and command is supported
+        if self.test_callback is None or spec.test == False:
+            self.test_btn.pack_forget()
+        else:
+            self.test_btn.state(["!disabled"])
+            self.test_btn.pack(side="right", padx=(0, 6))
+
 
     def _parse_field(self, key, field):
         ftype = field["type"]
@@ -358,6 +369,33 @@ class CommandEditorDialog(tk.Toplevel):
     def _cancel(self):
         self.result = None
         self.destroy()
+
+    def _test(self):
+        if self.test_callback is None:
+            return
+
+        # Build a cmd object from the current UI fields without closing the dialog
+        name = self.cmd_name_var.get()
+        spec = self.registry.get(name)
+        if not spec:
+            messagebox.showerror("Test", "Unknown command.", parent=self)
+            return
+
+        cmd_obj = {"cmd": name}
+        try:
+            for field in spec.arg_schema:
+                key = field["key"]
+                cmd_obj[key] = self._parse_field(key, field)
+        except Exception as e:
+            messagebox.showerror("Test", f"Invalid inputs:\n{e}", parent=self)
+            return
+
+        try:
+            title, msg = self.test_callback(cmd_obj)
+            messagebox.showinfo(title, msg, parent=self)
+        except Exception as e:
+            messagebox.showerror("Test error", str(e), parent=self)
+
 
 
 # ----------------------------
@@ -1800,7 +1838,7 @@ class App:
         idx = self._get_selected_index()
         insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
 
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command")
+        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command", test_callback=self._dialog_test_callback)
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1827,7 +1865,7 @@ class App:
             return
 
         initial = self.engine.commands[idx]
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command")
+        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command", test_callback=self._dialog_test_callback)
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1888,6 +1926,71 @@ class App:
 
         self.script_tree.selection_set(str(insert_at))
         self.script_tree.see(str(insert_at))
+
+    def _resolve_test_value(self, v):
+        """
+        Resolve '$var' in editor tests using current engine vars.
+        """
+        if isinstance(v, str) and v.startswith("$"):
+            return self.engine.vars.get(v[1:], None)
+        return v
+    
+    def test_command_dialog(self, cmd_obj):
+        """
+        Returns (title, message) for a given cmd_obj.
+        Currently supports: find_color
+        """
+        cmd = cmd_obj.get("cmd")
+        match cmd:
+            case "find_color":
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("find_color Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                rgb = cmd_obj.get("rgb", [0, 0, 0])
+                tol = int(self._resolve_test_value(cmd_obj.get("tol", 0)))
+                out = (cmd_obj.get("out") or "match").strip()
+
+                h, w, _ = frame.shape
+                if not (0 <= x < w and 0 <= y < h):
+                    return ("find_color Test",
+                            f"Point out of bounds.\n"
+                            f"Requested: ({x},{y})\n"
+                            f"Frame size: {w}x{h}")
+
+                # Sample pixel (frame is BGR)
+                b, g, r = frame[y, x].tolist()
+                sampled_rgb = [int(r), int(g), int(b)]
+
+                target = [int(rgb[0]), int(rgb[1]), int(rgb[2])]
+                tol = max(0, tol)
+
+                ok = all(abs(sampled_rgb[i] - target[i]) <= tol for i in range(3))
+
+                msg = (
+                    f"Point: ({x},{y})\n"
+                    f"Sampled RGB: {sampled_rgb}\n"
+                    f"Target RGB:  {target}\n"
+                    f"Tolerance:   {tol}\n\n"
+                    f"Result (would set ${out}): {ok}"
+                )
+                return ("find_color Test", msg)
+            case _:
+                raise ValueError("No tester implemented for this command.")
+
+    def _dialog_test_callback(self, cmd_obj):
+        # Only enable for find_color (for now)
+        cmd = cmd_obj.get("cmd")
+        match cmd:
+            case "find_color":
+                return self.test_command_dialog(cmd_obj)
+            case _:
+                raise ValueError("No test available for this command.")
+
+
 
     # ---- close
     def on_close(self):

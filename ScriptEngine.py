@@ -13,7 +13,7 @@ import sys
 
 class CommandSpec:
     def __init__(self, name, required_keys, fn, doc="", arg_schema=None, format_fn=None,
-                 group="Other", order=999):
+                 group="Other", order=999,test=False):
         self.name = name
         self.required_keys = required_keys
         self.fn = fn
@@ -22,6 +22,7 @@ class CommandSpec:
         self.format_fn = format_fn or (lambda c: f"{name} " + " ".join(f"{k}={c.get(k)!r}" for k in c if k != "cmd"))
         self.group = group
         self.order = order
+        self.test = test
 
 
 
@@ -635,7 +636,8 @@ class ScriptEngine:
                 ],
                 format_fn=fmt_find_color,
                 group="Image",
-                order=10
+                order=10,
+                test = True
             ),
             CommandSpec(
                 "run_python",
