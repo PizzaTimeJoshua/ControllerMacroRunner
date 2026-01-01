@@ -26,6 +26,47 @@ import SerialController
 import ScriptEngine
 
 
+SETTINGS_PATH = "settings.json"
+
+DEFAULT_SETTINGS = {
+    "console_mode": "GBA",
+    "custom_fps": 59.7275,
+    "selected_camera": "",
+    "selected_com": "",
+    "3ds_ip_address": "",
+    "3ds_port": "",
+}
+
+CONSOLE_FPS_PRESETS = {
+    "GBA": 59.7275,
+    "NDS - Slot 1": 59.8261,
+    "NDS - Slot 2": 59.6555,
+    "3DS": 59.8261,
+    "DSi": 59.8261,
+    "Custom": None,
+}
+
+def load_settings():
+    try:
+        if os.path.exists(SETTINGS_PATH):
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                s = DEFAULT_SETTINGS.copy()
+                s.update(data)
+                return s
+    except Exception:
+        pass
+    return DEFAULT_SETTINGS.copy()
+
+def save_settings(settings: dict):
+    try:
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def resource_path(rel_path: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base, rel_path)
@@ -36,9 +77,6 @@ def ffmpeg_path() -> str:
     if os.path.exists(bundled):
         return bundled
     return "ffmpeg"  # fallback to PATH
-
-
-
 
 
 # ----------------------------
@@ -99,12 +137,14 @@ def list_python_files():
 # ----------------------------
 
 class CommandEditorDialog(tk.Toplevel):
-    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",test_callback = None):
+    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command", test_callback = None, fps_getter=None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
         self.result = None
         self.test_callback = test_callback
+        self.fps_getter = fps_getter or (lambda: 59.7275)
+
 
 
         self.title(title)
@@ -214,6 +254,13 @@ class CommandEditorDialog(tk.Toplevel):
                     ent.grid(row=r, column=1, sticky="ew", pady=3)
                     self.field_vars[key] = var
                     self.widgets[key] = ent
+                    
+                case "expr":
+                    var = tk.StringVar(value=str(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
                 case "bool":
                     var = tk.BooleanVar(value=bool(init_val))
@@ -285,7 +332,33 @@ class CommandEditorDialog(tk.Toplevel):
                     combo.grid(row=r, column=1, sticky="ew", pady=3)
                     self.field_vars[key] = var
                     self.widgets[key] = combo
+                case "frames":
+                    var = tk.StringVar(value=str(init_val))
+                    rowf = ttk.Frame(self.fields_frame)
+                    rowf.grid(row=r, column=1, sticky="ew", pady=3)
+                    rowf.columnconfigure(0, weight=1)
 
+                    ent = ttk.Entry(rowf, textvariable=var, width=12)
+                    ent.grid(row=0, column=0, sticky="w")
+
+                    seconds_var = tk.StringVar(value="")
+                    lbl = ttk.Label(rowf, textvariable=seconds_var, foreground="gray")
+                    lbl.grid(row=0, column=1, sticky="w", padx=(10, 0))
+
+                    def update_seconds(*_):
+                        try:
+                            frames = int(var.get().strip())
+                            fps = float(self.fps_getter())
+                            seconds = frames / fps
+                            seconds_var.set(f"≈ {seconds:.4f} s @ {fps:.4f} FPS")
+                        except Exception:
+                            seconds_var.set("")
+
+                    var.trace_add("write", update_seconds)
+                    update_seconds()
+
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
                 case _:
                     ttk.Label(self.fields_frame, text=f"(unsupported type: {ftype})").grid(row=r, column=1, sticky="w")
                 
@@ -311,35 +384,42 @@ class CommandEditorDialog(tk.Toplevel):
         var = self.field_vars[key]
         raw = var.get() if var is not None else None
 
-        if ftype == "int":
-            return int(raw.strip())
-        
-        if ftype == "float":
-            return float(raw.strip())
+        match ftype:
+            case "int":
+                return int(raw.strip())
+            
+            case "float":
+                return float(raw.strip())
 
-        if ftype == "str":
-            return str(raw)
+            case "str":
+                return str(raw)
 
-        if ftype == "bool":
-            return bool(var.get())
+            case "bool":
+                return bool(var.get())
 
-        if ftype == "choice":
-            return raw
+            case "choice":
+                return raw
 
-        if ftype == "json":
-            return json.loads(raw.strip())
+            case "json":
+                return json.loads(raw.strip())
 
-        if ftype == "rgb":
-            s = raw.strip()
-            if s.startswith("["):
-                v = json.loads(s)
-                if not (isinstance(v, list) and len(v) == 3):
-                    raise ValueError("rgb must be [R,G,B]")
-                return [int(v[0]), int(v[1]), int(v[2])]
-            parts = [p.strip() for p in s.split(",")]
-            if len(parts) != 3:
-                raise ValueError("rgb must be 'R,G,B'")
-            return [int(parts[0]), int(parts[1]), int(parts[2])]
+            case "rgb":
+                s = raw.strip()
+                if s.startswith("["):
+                    v = json.loads(s)
+                    if not (isinstance(v, list) and len(v) == 3):
+                        raise ValueError("rgb must be [R,G,B]")
+                    return [int(v[0]), int(v[1]), int(v[2])]
+                parts = [p.strip() for p in s.split(",")]
+                if len(parts) != 3:
+                    raise ValueError("rgb must be 'R,G,B'")
+                return [int(parts[0]), int(parts[1]), int(parts[2])]
+            
+            case "frames":
+                return int(raw.strip())
+            
+            case "expr":
+                return raw
 
         raise ValueError(f"Unsupported type: {ftype}")
 
@@ -428,6 +508,8 @@ class App:
         self.root.rowconfigure(0, weight=1)
         self.root.geometry("1200x700")
 
+        self.settings = load_settings()
+
         # --- keyboard controller mode (manual control)
         self.kb_enabled = tk.BooleanVar(value=False)
         self.kb_bindings = {  # key -> controller button name (must match ALL_BUTTONS entries)
@@ -504,6 +586,16 @@ class App:
         self.refresh_scripts()
         self._update_title()
 
+        saved_cam = (self.settings.get("selected_camera") or "").strip()
+        if saved_cam and saved_cam in (self.cam_combo["values"] or []):
+            self.cam_var.set(saved_cam)
+
+        saved_com = (self.settings.get("selected_com") or "").strip()
+        if saved_com and saved_com in (self.com_combo["values"] or []):
+            self.com_var.set(saved_com)
+
+
+
     # ---- title/dirty
     def mark_dirty(self, dirty=True):
         self.dirty = dirty
@@ -551,10 +643,10 @@ class App:
         self.cam_combo.grid(row=0, column=1, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
-        self.cam_toggle_btn.grid(row=0, column=3, padx=(6, 6))
+        self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
 
         self.cam_display_btn = ttk.Button(top, text="Show Cam", command=self.toggle_camera_panel)
-        self.cam_display_btn.grid(row=1, column=3, padx=(6,6))
+        self.cam_display_btn.grid(row=1, column=3, padx=(0,6))
 
         ttk.Label(top, text="Cam Ratio:").grid(row=1, column=0, sticky="w")
 
@@ -591,7 +683,7 @@ class App:
         )
         self.chan_combo.grid(row=0, column=9, sticky="w", padx=(6, 6))
 
-        ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
+        ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 6))
 
         # Backend Selectors
         ttk.Label(top, text="Output:").grid(row=2, column=0, sticky="w")
@@ -613,7 +705,6 @@ class App:
         self.threeds_enable_btn = ttk.Button(top, text="Enable 3DS", command=self.enable_threeds_backend)
         self.threeds_disable_btn = ttk.Button(top, text="Disable 3DS", command=self.disable_threeds_backend)
 
-        # place them (we'll hide/show in on_backend_changed)
         self.threeds_ip_label.grid(row=2, column=2, sticky="w")
         self.threeds_ip_entry.grid(row=2, column=3, sticky="w", padx=(4, 8))
 
@@ -626,19 +717,35 @@ class App:
         # initialize visibility
         self.on_backend_changed()
 
+        ttk.Label(top, text="Console:").grid(row=1, column=8, sticky="w", pady=(6, 0))
+
+        self.console_var = tk.StringVar(value=self.settings.get("console_mode", "NDS - Slot 1"))
+        self.console_combo = ttk.Combobox(
+            top, textvariable=self.console_var, state="readonly",
+            values=list(CONSOLE_FPS_PRESETS.keys()), width=8
+        )
+        self.console_combo.grid(row=1, column=9, sticky="w", padx=(6, 6), pady=(6, 0))
+
+        ttk.Button(top, text="Apply FPS", command=self.apply_fps_settings).grid(row=1, column=10, padx=(0, 6),pady=(6,0))
+
+        ttk.Label(top, text="Custom FPS:").grid(row=1, column=11, sticky="w", pady=(6, 0))
+        self.custom_fps_var = tk.StringVar(value=str(self.settings.get("custom_fps", 59.7275)))
+        self.custom_fps_entry = ttk.Entry(top, textvariable=self.custom_fps_var, width=10)
+        self.custom_fps_entry.grid(row=1, column=12, sticky="w", padx=(6, 6), pady=(6, 0))
+
 
 
         # Script file controls
-        ttk.Label(top, text="Script:").grid(row=0, column=12, sticky="w")
+        ttk.Label(top, text="Script:").grid(row=0, column=11, sticky="w")
         self.script_var = tk.StringVar()
-        self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=26)
-        self.script_combo.grid(row=0, column=13, sticky="ew", padx=(6, 6))
-        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 6))
-        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
-        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 6))
+        self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=12)
+        self.script_combo.grid(row=0, column=12, sticky="ew", padx=(6, 6))
+        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=13, padx=(0, 6))
+        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=14, padx=(0, 6))
+        ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=15, padx=(0, 6))
 
-        ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=15, padx=(0, 6))
-        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=1, column=16, padx=(0, 6))
+        ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=14, padx=(0, 6))
+        ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=1, column=15, padx=(0, 6))
 
         # Run controls
         runbar = ttk.Frame(outer)
@@ -1068,6 +1175,37 @@ class App:
         self.video_mouse_xy_var.set(f"x: {x}, y: {y}")
 
 
+    def get_script_fps(self) -> float:
+        mode = self.settings.get("console_mode", "GBA")
+        if mode == "Custom":
+            try:
+                return float(self.settings.get("custom_fps", 59.7275))
+            except Exception:
+                return 59.7275
+        return float(CONSOLE_FPS_PRESETS.get(mode, 59.7275))
+
+    def apply_fps_settings(self):
+        mode = self.console_var.get().strip() or "GBA"
+
+        self.settings["console_mode"] = mode
+
+        if mode == "Custom":
+            try:
+                fps = float(self.custom_fps_var.get().strip())
+                if fps <= 1 or fps > 240:
+                    raise ValueError("fps out of range")
+                self.settings["custom_fps"] = fps
+            except Exception:
+                messagebox.showerror("Custom FPS", "Please enter a valid FPS (e.g. 59.7275).")
+                return
+
+        fps_now = self.get_script_fps()
+        self.fps_label_var.set(f"{fps_now:.4f} FPS")
+
+        save_settings(self.settings)
+        self.set_status(f"Timing set: {mode} ({fps_now:.4f} FPS)")
+
+
 
     # ---- camera
     def refresh_cameras(self):
@@ -1075,6 +1213,9 @@ class App:
         self.cam_combo["values"] = cams
         if cams and self.cam_var.get() not in cams:
             self.cam_var.set(cams[0])
+        self.settings["selected_camera"] = self.cam_var.get().strip()
+        save_settings(self.settings)
+
 
     def toggle_camera(self):
         if self.cam_running:
@@ -1109,6 +1250,10 @@ class App:
         self.cam_running = True
         self.cam_toggle_btn.configure(text="Stop Cam")
         self.set_status(f"Camera streaming: {device}")
+
+        self.settings["selected_camera"] = device
+        save_settings(self.settings)
+
 
         self.cam_thread = threading.Thread(target=self._camera_reader_loop, daemon=True)
         self.cam_thread.start()
@@ -1281,6 +1426,9 @@ class App:
                 self.ser_btn.configure(text="Disconnect")
             except Exception as e:
                 messagebox.showerror("Serial error", str(e))
+            self.settings["selected_com"] = port
+            save_settings(self.settings)
+
     def set_channel(self):
         if not self.serial.connected:
             messagebox.showwarning("Not connected", "Connect to the COM device first.")
@@ -1774,6 +1922,7 @@ class App:
             self._release_all_keyboard_buttons()
         try:
             self.engine.rebuild_indexes(strict=True)  # strict only when running
+            self.engine.fps = self.get_script_fps()
             self.engine.run()
         except Exception as e:
             messagebox.showerror("Run error", str(e))
@@ -1838,7 +1987,7 @@ class App:
         idx = self._get_selected_index()
         insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
 
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command", test_callback=self._dialog_test_callback, fps_getter=self.get_script_fps)
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1865,7 +2014,7 @@ class App:
             return
 
         initial = self.engine.commands[idx]
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command", test_callback=self._dialog_test_callback, fps_getter=self.get_script_fps)
         self.root.wait_window(dlg)
         if dlg.result is None:
             return

@@ -7,6 +7,28 @@ import json
 import os
 import subprocess
 import sys
+
+def precise_sleep(seconds: float, stop_event=None):
+    """
+    More consistent than time.sleep alone.
+    Sleeps most of the time, then busy-waits the last ~2ms.
+    """
+    if seconds <= 0:
+        return
+    end = time.perf_counter() + seconds
+    # sleep until close
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            return
+        remaining = end - time.perf_counter()
+        if remaining <= 0:
+            return
+        if remaining > 0.003:
+            time.sleep(remaining - 0.002)
+        else:
+            # busy wait
+            pass
+
 # ----------------------------
 # Script Command Spec
 # ----------------------------
@@ -215,6 +237,7 @@ class ScriptEngine:
         self._thread = None
         self.running = False
         self.ip = 0
+        self.fps = 59.7275
 
         self._backend_getter = None
 
@@ -303,6 +326,7 @@ class ScriptEngine:
             "get_frame": self.get_frame,
             "ip": self.ip,
             "get_backend": self.get_backend,
+            "fps": self.fps,
         }
 
         try:
@@ -336,10 +360,10 @@ class ScriptEngine:
         reg = {}
 
         # ---- pretty formatters
-        def fmt_wait(c): return f"Wait {c.get('ms')} ms"
+        def fmt_wait(c): return f"Wait {c.get('frames')} frames"
         def fmt_press(c):
             btns = c.get("buttons", [])
-            return f"Press {', '.join(btns) if btns else '(none)'} for {c.get('ms')} ms"
+            return f"Press {', '.join(btns) if btns else '(none)'} for {c.get('frames')} frames"
         def fmt_hold(c):
             btns = c.get("buttons", [])
             return f"Hold {', '.join(btns) if btns else '(none)'}"
@@ -366,12 +390,10 @@ class ScriptEngine:
 
         # ---- execution fns
         def cmd_wait(ctx, c):
-            ms = int(resolve_value(ctx, c["ms"]))
-            end_t = time.monotonic() + ms / 1000.0
-            while time.monotonic() < end_t:
-                if ctx["stop"].is_set():
-                    break
-                time.sleep(0.01)
+            frames = int(resolve_value(ctx, c["frames"]))
+            fps = float(ctx.get("fps", 59.7275))
+            seconds = frames / fps
+            precise_sleep(seconds, stop_event=ctx["stop"])
 
         def cmd_press(ctx, c):
             backend = ctx["get_backend"]()
@@ -382,12 +404,11 @@ class ScriptEngine:
             if not isinstance(buttons, list):
                 raise ValueError("press: buttons must be a list")
 
-            # Resolve variable refs in buttons list if you support it; otherwise leave:
             backend.set_buttons(buttons)
 
-            ms = int(resolve_value(ctx, c.get("ms", 60)))
-            if ms > 0:
-                time.sleep(ms / 1000.0)
+            frames = int(resolve_value(ctx,c.get("frames", 1)))
+
+            cmd_wait(ctx, {"frames": frames})
 
             # release
             backend.set_buttons([])
@@ -528,19 +549,19 @@ class ScriptEngine:
                 order=10
             ),
             CommandSpec(
-                "wait", ["ms"], cmd_wait,
-                doc="Wait for a number of milliseconds.",
-                arg_schema=[{"key": "ms", "type": "int", "default": 100, "help": "Milliseconds to wait"}],
+                "wait", ["frames"], cmd_wait,
+                doc="Wait for a number of frames.",
+                arg_schema=[{"key": "frames", "type": "expr", "default": 100, "help": "Number of frames to wait (number or $variable)"}],
                 format_fn=fmt_wait,
                 group="Timing",
                 order=10
             ),
             CommandSpec(
-                "press", ["buttons", "ms"], cmd_press,
-                doc="Press buttons for ms, then release to neutral.",
+                "press", ["buttons", "frames"], cmd_press,
+                doc="Press buttons for a number frames, then release to neutral.",
                 arg_schema=[
                     {"key": "buttons", "type": "buttons", "default": ["A"], "help": "Buttons to press"},
-                    {"key": "ms", "type": "int", "default": 80, "help": "Hold duration in milliseconds"},
+                    {"key": "frames", "type": "expr", "default": 80, "help": "Number of frames to hold (number or $variable)"},
                 ],
                 format_fn=fmt_press,
                 group="Controller",
