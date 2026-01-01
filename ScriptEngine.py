@@ -23,8 +23,8 @@ def precise_sleep(seconds: float, stop_event=None):
         remaining = end - time.perf_counter()
         if remaining <= 0:
             return
-        if remaining > 0.003:
-            time.sleep(remaining - 0.002)
+        if remaining > 0.03:
+            time.sleep(remaining - 0.02)
         else:
             # busy wait
             pass
@@ -551,7 +551,7 @@ class ScriptEngine:
             CommandSpec(
                 "wait", ["frames"], cmd_wait,
                 doc="Wait for a number of frames.",
-                arg_schema=[{"key": "frames", "type": "expr", "default": 100, "help": "Number of frames to wait (number or $variable)"}],
+                arg_schema=[{"key": "frames", "type": "frames", "default": 100, "help": "Number of frames to wait (number or $variable)"}],
                 format_fn=fmt_wait,
                 group="Timing",
                 order=10
