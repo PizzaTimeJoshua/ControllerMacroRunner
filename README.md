@@ -1,8 +1,8 @@
-# Controller Macro Runner
+# Controller Macro Runner (Currently In Development)
 
 #### A Windows desktop app for:
 
-- Displaying a DirectShow camera feed (via FFmpeg)
+- Displaying a DirectShow camera feed (via [FFmpeg](https://github.com/BtbN/FFmpeg-Builds/releases))
 
 - Sending controller button packets continuously over a USB serial transmitter
 
@@ -63,14 +63,17 @@
 #### Folder Layout
 ```
 project/
-  app.py                      # the single-file program
+  main.py                      # main file program
+  ScriptEngine.py
+  SerialController.py
+  ThreeDSClasses.py
   scripts/                    # macro scripts (JSON)
     example.json
   py_scripts/                 # user python helpers for run_python
     my_tool.py
   bin/
-    ffmpeg.exe                  # optional (recommended for packaging)
-    *.dll
+    ffmpeg.exe                # Can also be on PATH
+    *.dll                     # Dll files from ffmpeg
 ```
 The app will create `scripts/` and `py_scripts/` if missing.
 
@@ -94,7 +97,7 @@ py -m pip install numpy pillow pyserial
 
 FFmpeg:
 
-- Recommended: place ffmpeg.exe alongside the app (or ensure ffmpeg is on PATH)
+- Recommended: place `ffmpeg.exe` and `*.dll` files in the folder `bin/` (or ensure ffmpeg is on PATH)
 
 #### Running
 ```bat
@@ -256,7 +259,7 @@ Use `"$frame"` as an argument to pass the latest frame as a PNG base64 payload:
 ```
 
 
-In `vision.py`, decode like this:
+In `example_frame_input.py`, decode like this:
 ```python
 import base64
 from io import BytesIO
@@ -291,7 +294,7 @@ See the existing `find_color` implementation for a camera-reading example.
 
 #### Custom Command Tutorial
 
-To add a new command, you generally do 5 things:
+To add a new command, you generally do 5 things in `ScriptEngine.py`:
 
 1. Decide the command’s JSON shape
 
