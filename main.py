@@ -189,100 +189,102 @@ class CommandEditorDialog(tk.Toplevel):
             if initial_cmd and initial_cmd.get("cmd") == name and key in initial_cmd:
                 init_val = initial_cmd[key]
 
-            if ftype == "int":
-                var = tk.StringVar(value=str(init_val))
-                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                ent.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = ent
+            match ftype:
+                case "int":
+                    var = tk.StringVar(value=str(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
-            elif ftype == "float":
-                var = tk.StringVar(value=str(init_val))
-                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                ent.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = ent
+                case "float":
+                    var = tk.StringVar(value=str(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
-            elif ftype == "str":
-                var = tk.StringVar(value=str(init_val))
-                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                ent.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = ent
+                case "str":
+                    var = tk.StringVar(value=str(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
-            elif ftype == "bool":
-                var = tk.BooleanVar(value=bool(init_val))
-                cb = ttk.Checkbutton(self.fields_frame, variable=var)
-                cb.grid(row=r, column=1, sticky="w", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = cb
+                case "bool":
+                    var = tk.BooleanVar(value=bool(init_val))
+                    cb = ttk.Checkbutton(self.fields_frame, variable=var)
+                    cb.grid(row=r, column=1, sticky="w", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = cb
 
-            elif ftype == "choice":
-                var = tk.StringVar(value=str(init_val))
-                combo = ttk.Combobox(
-                    self.fields_frame, textvariable=var, state="readonly",
-                    values=field.get("choices", []), width=28
-                )
-                combo.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = combo
+                case "choice":
+                    var = tk.StringVar(value=str(init_val))
+                    combo = ttk.Combobox(
+                        self.fields_frame, textvariable=var, state="readonly",
+                        values=field.get("choices", []), width=28
+                    )
+                    combo.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = combo
 
-            elif ftype == "json":
-                var = tk.StringVar(value=json.dumps(init_val))
-                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                ent.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = ent
+                case "json":
+                    var = tk.StringVar(value=json.dumps(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
-            elif ftype == "rgb":
-                if isinstance(init_val, (list, tuple)) and len(init_val) == 3:
-                    init_text = ",".join(str(int(x)) for x in init_val)
-                else:
-                    init_text = str(init_val)
-                var = tk.StringVar(value=init_text)
-                ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                ent.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = ent
+                case "rgb":
+                    if isinstance(init_val, (list, tuple)) and len(init_val) == 3:
+                        init_text = ",".join(str(int(x)) for x in init_val)
+                    else:
+                        init_text = str(init_val)
+                    var = tk.StringVar(value=init_text)
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
 
-            elif ftype == "buttons":
-                frame = ttk.Frame(self.fields_frame)
-                frame.grid(row=r, column=1, sticky="ew", pady=3)
-                lb = tk.Listbox(frame, selectmode="multiple", height=6, exportselection=False)
-                sb = ttk.Scrollbar(frame, orient="vertical", command=lb.yview)
-                lb.configure(yscrollcommand=sb.set)
-                lb.pack(side="left", fill="both", expand=True)
-                sb.pack(side="left", fill="y")
+                case "buttons":
+                    frame = ttk.Frame(self.fields_frame)
+                    frame.grid(row=r, column=1, sticky="ew", pady=3)
+                    lb = tk.Listbox(frame, selectmode="multiple", height=6, exportselection=False)
+                    sb = ttk.Scrollbar(frame, orient="vertical", command=lb.yview)
+                    lb.configure(yscrollcommand=sb.set)
+                    lb.pack(side="left", fill="both", expand=True)
+                    sb.pack(side="left", fill="y")
 
-                for b in SerialController.ALL_BUTTONS:
-                    lb.insert("end", b)
+                    for b in SerialController.ALL_BUTTONS:
+                        lb.insert("end", b)
 
-                init_buttons = init_val if isinstance(init_val, list) else []
-                for i, b in enumerate(SerialController.ALL_BUTTONS):
-                    if b in init_buttons:
-                        lb.selection_set(i)
+                    init_buttons = init_val if isinstance(init_val, list) else []
+                    for i, b in enumerate(SerialController.ALL_BUTTONS):
+                        if b in init_buttons:
+                            lb.selection_set(i)
 
-                self.widgets[key] = lb
-                self.field_vars[key] = None
-            elif ftype == "pyfile":
-                # Dropdown of ./py_scripts/*.py, but allow typing arbitrary text too (absolute path)
-                var = tk.StringVar(value=str(init_val) if init_val is not None else "")
-                files = list_python_files()
+                    self.widgets[key] = lb
+                    self.field_vars[key] = None
 
-                combo = ttk.Combobox(
-                    self.fields_frame,
-                    textvariable=var,
-                    values=files,
-                    state="normal",   # allow typing too
-                    width=28
-                )
-                combo.grid(row=r, column=1, sticky="ew", pady=3)
-                self.field_vars[key] = var
-                self.widgets[key] = combo
+                case "pyfile":
+                    # Dropdown of ./py_scripts/*.py, but allow typing arbitrary text too (absolute path)
+                    var = tk.StringVar(value=str(init_val) if init_val is not None else "")
+                    files = list_python_files()
 
+                    combo = ttk.Combobox(
+                        self.fields_frame,
+                        textvariable=var,
+                        values=files,
+                        state="normal",   # allow typing too
+                        width=28
+                    )
+                    combo.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = combo
 
-            else:
-                ttk.Label(self.fields_frame, text=f"(unsupported type: {ftype})").grid(row=r, column=1, sticky="w")
+                case _:
+                    ttk.Label(self.fields_frame, text=f"(unsupported type: {ftype})").grid(row=r, column=1, sticky="w")
+                
 
             ttk.Label(self.fields_frame, text=help_text, foreground="gray").grid(row=r, column=2, sticky="w", padx=(8, 0))
 
@@ -300,6 +302,9 @@ class CommandEditorDialog(tk.Toplevel):
 
         if ftype == "int":
             return int(raw.strip())
+        
+        if ftype == "float":
+            return float(raw.strip())
 
         if ftype == "str":
             return str(raw)
