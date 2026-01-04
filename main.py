@@ -254,7 +254,7 @@ class CommandEditorDialog(tk.Toplevel):
                     ent.grid(row=r, column=1, sticky="ew", pady=3)
                     self.field_vars[key] = var
                     self.widgets[key] = ent
-
+                    
                 case "expr":
                     var = tk.StringVar(value=str(init_val))
                     ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
@@ -416,7 +416,7 @@ class CommandEditorDialog(tk.Toplevel):
                 return [int(parts[0]), int(parts[1]), int(parts[2])]
             
             case "frames":
-                return raw
+                return int(raw.strip())
             
             case "expr":
                 return raw
@@ -733,7 +733,6 @@ class App:
         self.custom_fps_entry = ttk.Entry(top, textvariable=self.custom_fps_var, width=10)
         self.custom_fps_entry.grid(row=1, column=12, sticky="w", padx=(6, 6), pady=(6, 0))
 
-        self.fps_label_var = tk.StringVar(value=f"{self.get_script_fps():.4f} FPS")
 
 
         # Script file controls
