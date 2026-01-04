@@ -7,13 +7,18 @@ import json
 import os
 import subprocess
 import sys
+import ast
+import math
+import re
+from tkinter import messagebox
 # ----------------------------
 # Script Command Spec
 # ----------------------------
 
 class CommandSpec:
     def __init__(self, name, required_keys, fn, doc="", arg_schema=None, format_fn=None,
-                 group="Other", order=999,test=False):
+                 group="Other", order=999,
+                 test=False,exportable=True, export_note =""):
         self.name = name
         self.required_keys = required_keys
         self.fn = fn
@@ -23,6 +28,8 @@ class CommandSpec:
         self.group = group
         self.order = order
         self.test = test
+        self.exportable = exportable
+        self.export_note = export_note
 
 
 
@@ -65,7 +72,33 @@ def eval_condition(ctx, left, op, right):
     if op == "<=": return L <= R
     if op == ">":  return L > R
     if op == ">=": return L >= R
-    raise ValueError(f"Unknown op: {op}")
+    messagebox.showerror(f"Unknown op: {op}")
+    return
+def resolve_number(ctx, raw):
+    """
+    Resolves a numeric-ish value:
+      - int/float pass through
+      - "$var" becomes ctx["vars"]["var"]
+      - "=expr" is evaluated via eval_expr (supports $var inside)
+      - numeric strings like "123" are cast
+    """
+    if isinstance(raw, (int, float)):
+        return raw
+
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith("="):
+            return eval_expr(ctx, s[1:])
+        if s.startswith("$"):
+            return resolve_value(ctx, s)  # $var
+        # fall back to parsing numeric string
+        try:
+            return int(s)
+        except ValueError:
+            return float(s)
+
+    return raw
+
 
 
 def build_label_index(commands):
@@ -74,7 +107,8 @@ def build_label_index(commands):
         if c.get("cmd") == "label":
             name = c.get("name")
             if not name:
-                raise ValueError(f"label missing name at index {i}")
+                messagebox.showerror(f"label missing name at index {i}")
+                return
             labels[name] = i
     return labels
 
@@ -88,12 +122,14 @@ def build_if_matching(commands, strict=True):
         elif c.get("cmd") == "end_if":
             if not stack:
                 if strict:
-                    raise ValueError(f"end_if without if at index {i}")
+                    messagebox.showerror(f"end_if without if at index {i}")
+                    return
                 continue
             j = stack.pop()
             m[j] = i
     if stack and strict:
-        raise ValueError(f"Unclosed if at index {stack[-1]}")
+        messagebox.showerror(f"Unclosed if at index {stack[-1]}")
+        return
     return m, stack  # return leftovers for warnings
 
 
@@ -107,13 +143,15 @@ def build_while_matching(commands, strict=True):
         elif c.get("cmd") == "end_while":
             if not stack:
                 if strict:
-                    raise ValueError(f"end_while without while at index {i}")
+                    messagebox.showerror(f"end_while without while at index {i}")
+                    return
                 continue
             w = stack.pop()
             while_to_end[w] = i
             end_to_while[i] = w
     if stack and strict:
-        raise ValueError(f"Unclosed while at index {stack[-1]}")
+        messagebox.showerror(f"Unclosed while at index {stack[-1]}")
+        return
     return while_to_end, end_to_while, stack
 
 def frame_to_json_payload(frame_bgr: np.ndarray):
@@ -186,6 +224,83 @@ if __name__ == "__main__":
         return None
     return json.loads(out_text)
 
+_EXPR_VAR_RE = re.compile(r"\$([A-Za-z_]\w*)")
+
+def eval_expr(ctx, expr: str):
+    """
+    Evaluate a simple math expression safely.
+    Variables are referenced as $name inside the expression.
+    Example: "9/$value*1000"
+    """
+    if not isinstance(expr, str):
+        return expr
+
+    # Replace $var with a python identifier var
+    used = set(_EXPR_VAR_RE.findall(expr))
+    py_expr = _EXPR_VAR_RE.sub(r"\1", expr)
+
+    # Build locals for used vars (missing vars become error)
+    local_vars = {}
+    for name in used:
+        if name not in ctx["vars"]:
+            messagebox.showerror(f"Expression references undefined variable: ${name}")
+            return
+        local_vars[name] = ctx["vars"][name]
+
+    allowed = {
+        # math funcs
+        "abs": abs,
+        "round": round,
+        "min": min,
+        "max": max,
+        "int": int,
+        "float": float,
+        # math module
+        "math": math,
+        "pi": math.pi,
+        "e": math.e,
+    }
+    allowed.update(local_vars)
+
+    node = ast.parse(py_expr, mode="eval")
+
+    # Validate AST: allow only safe nodes
+    for n in ast.walk(node):
+        if isinstance(n, (ast.Expression, ast.Load, ast.Constant, ast.Name)):
+            continue
+        if isinstance(n, (ast.BinOp, ast.UnaryOp)):
+            continue
+        if isinstance(n, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)):
+            continue
+        if isinstance(n, (ast.UAdd, ast.USub)):
+            continue
+        if isinstance(n, ast.Call):
+            # Allow calls only to whitelisted functions or math.<fn>
+            if isinstance(n.func, ast.Name):
+                if n.func.id not in allowed:
+                    messagebox.showerror(f"Function not allowed: {n.func.id}")
+                    return
+            elif isinstance(n.func, ast.Attribute):
+                # allow math.xxx only
+                if not (isinstance(n.func.value, ast.Name) and n.func.value.id == "math"):
+                    messagebox.showerror("Only math.<fn>(...) calls are allowed")
+                    return
+            else:
+                messagebox.showerror("Invalid function call")
+                return
+            continue
+        if isinstance(n, ast.Attribute):
+            # allow math.<attr> only
+            if not (isinstance(n.value, ast.Name) and n.value.id == "math"):
+                messagebox.showerror("Only math.<attr> is allowed")
+                return
+            continue
+
+        # Block everything else (comparisons, subscripts, lambdas, etc.)
+        messagebox.showerror(f"Disallowed expression element: {type(n).__name__}")
+        return
+
+    return eval(compile(node, "<expr>", "eval"), {"__builtins__": {}}, allowed)
 
 # ----------------------------
 # Script Engine
@@ -249,18 +364,22 @@ class ScriptEngine:
         with open(path, "r", encoding="utf-8") as f:
             cmds = json.load(f)
         if not isinstance(cmds, list):
-            raise ValueError("Script must be a list of command objects.")
+            messagebox.showerror("Script must be a list of command objects.")
+            return
 
         for i, c in enumerate(cmds):
             if not isinstance(c, dict) or "cmd" not in c:
-                raise ValueError(f"Command at index {i} must be an object with 'cmd'.")
+                messagebox.showerror(f"Command at index {i} must be an object with 'cmd'.")
+                return
             name = c["cmd"]
             if name not in self.registry:
-                raise ValueError(f"Unknown cmd '{name}' at index {i}.")
+                messagebox.showerror(f"Unknown cmd '{name}' at index {i}.")
+                return
             spec = self.registry[name]
             for k in spec.required_keys:
                 if k not in c:
-                    raise ValueError(f"'{name}' missing required key '{k}' at index {i}.")
+                    messagebox.showerror(f"'{name}' missing required key '{k}' at index {i}.")
+                    return
 
         self.commands = cmds
         self.rebuild_indexes()
@@ -326,6 +445,7 @@ class ScriptEngine:
         except Exception as e:
             self.serial.set_state(0, 0)
             self.status_cb(f"Script error: {e}")
+            raise(e)
         finally:
             self.running = False
             self.on_ip_update(-1)
@@ -366,12 +486,15 @@ class ScriptEngine:
 
         # ---- execution fns
         def cmd_wait(ctx, c):
-            ms = int(resolve_value(ctx, c["ms"]))
+            ms_raw = c.get("ms", 0)
+            ms = float(resolve_number(ctx, ms_raw))
+
             end_t = time.monotonic() + ms / 1000.0
             while time.monotonic() < end_t:
                 if ctx["stop"].is_set():
                     break
                 time.sleep(0.01)
+
 
         def cmd_press(ctx, c):
             backend = ctx["get_backend"]()
@@ -380,12 +503,14 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                raise ValueError("press: buttons must be a list")
+                messagebox.showerror("press: buttons must be a list")
+                return
 
             # Resolve variable refs in buttons list if you support it; otherwise leave:
             backend.set_buttons(buttons)
 
-            ms = int(resolve_value(ctx, c.get("ms", 60)))
+            ms_raw = c.get("ms", 50)
+            ms = float(resolve_number(ctx, ms_raw))
             if ms > 0:
                 time.sleep(ms / 1000.0)
 
@@ -400,7 +525,8 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                raise ValueError("hold: buttons must be a list")
+                messagebox.showerror("hold: buttons must be a list")
+                return
 
             backend.set_buttons(buttons)
 
@@ -411,16 +537,27 @@ class ScriptEngine:
         def cmd_goto(ctx, c):
             label = c["label"]
             if label not in ctx["labels"]:
-                raise ValueError(f"Unknown label: {label}")
+                messagebox.showerror(f"Unknown label: {label}")
+                return
             ctx["ip"] = ctx["labels"][label]
 
         def cmd_set(ctx, c):
-            ctx["vars"][c["var"]] = resolve_value(ctx, c.get("value"))
+            raw = c.get("value")
+            if isinstance(raw, str) and raw.strip().startswith("="):
+                ctx["vars"][c["var"]] = eval_expr(ctx, raw.strip()[1:])
+            else:
+                ctx["vars"][c["var"]] = resolve_value(ctx, raw)
 
         def cmd_add(ctx, c):
             var = c["var"]
             cur = ctx["vars"].get(var, 0)
-            ctx["vars"][var] = cur + resolve_value(ctx, c.get("value", 0))
+            raw = c.get("value", 0)
+            if isinstance(raw, str) and raw.strip().startswith("="):
+                val = eval_expr(ctx, raw.strip()[1:])
+            else:
+                val = resolve_value(ctx, raw)
+            ctx["vars"][var] = cur + val
+
 
         def cmd_if(ctx, c):
             ok = eval_condition(ctx, c["left"], c["op"], c["right"])
@@ -470,7 +607,8 @@ class ScriptEngine:
         def cmd_run_python(ctx, c):
             file_name = str(c["file"]).strip()
             if not file_name:
-                raise ValueError("run_python: file is empty")
+                messagebox.showerror("run_python: file is empty")
+                return
 
             if os.path.isabs(file_name):
                 script_path = file_name
@@ -478,13 +616,15 @@ class ScriptEngine:
                 script_path = os.path.join("py_scripts", file_name)
 
             if not os.path.exists(script_path):
-                raise ValueError(f"run_python: file not found: {script_path}")
+                messagebox.showerror(f"run_python: file not found: {script_path}")
+                return
 
             args = c.get("args", [])
             if args is None:
                 args = []
             if not isinstance(args, list):
-                raise ValueError("run_python: args must be a JSON list")
+                messagebox.showerror("run_python: args must be a JSON list")
+                return
 
             # NEW: allow $var references (and nested structures)
             args = resolve_vars_deep(ctx, args)
@@ -530,7 +670,7 @@ class ScriptEngine:
             CommandSpec(
                 "wait", ["ms"], cmd_wait,
                 doc="Wait for a number of milliseconds.",
-                arg_schema=[{"key": "ms", "type": "int", "default": 100, "help": "Milliseconds to wait"}],
+                arg_schema=[{"key": "ms", "type": "json", "default": 100, "help": "Milliseconds to wait"}],
                 format_fn=fmt_wait,
                 group="Timing",
                 order=10
@@ -540,7 +680,7 @@ class ScriptEngine:
                 doc="Press buttons for ms, then release to neutral.",
                 arg_schema=[
                     {"key": "buttons", "type": "buttons", "default": ["A"], "help": "Buttons to press"},
-                    {"key": "ms", "type": "int", "default": 80, "help": "Hold duration in milliseconds"},
+                    {"key": "ms", "type": "json", "default": 80, "help": "Hold duration in milliseconds"},
                 ],
                 format_fn=fmt_press,
                 group="Controller",
@@ -637,7 +777,9 @@ class ScriptEngine:
                 format_fn=fmt_find_color,
                 group="Image",
                 order=10,
-                test = True
+                test = True,
+                exportable=False,
+                export_note="Requires camera frame processing which is unsupported at the moment."
             ),
             CommandSpec(
                 "run_python",

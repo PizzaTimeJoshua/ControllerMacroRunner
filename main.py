@@ -24,6 +24,7 @@ from typing import Optional
 import ThreeDSClasses
 import SerialController
 import ScriptEngine
+import ScriptToPy
 
 
 def resource_path(rel_path: str) -> str:
@@ -286,6 +287,13 @@ class CommandEditorDialog(tk.Toplevel):
                     self.field_vars[key] = var
                     self.widgets[key] = combo
 
+                case "expr":
+                    var = tk.StringVar(value=str(init_val))
+                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
+                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+                    self.field_vars[key] = var
+                    self.widgets[key] = ent
+
                 case _:
                     ttk.Label(self.fields_frame, text=f"(unsupported type: {ftype})").grid(row=r, column=1, sticky="w")
                 
@@ -310,36 +318,43 @@ class CommandEditorDialog(tk.Toplevel):
 
         var = self.field_vars[key]
         raw = var.get() if var is not None else None
+        match ftype:
+            case "int":
+                return int(raw.strip())
+            
+            case "float":
+                return float(raw.strip())
 
-        if ftype == "int":
-            return int(raw.strip())
-        
-        if ftype == "float":
-            return float(raw.strip())
+            case "str":
+                return str(raw)
 
-        if ftype == "str":
-            return str(raw)
+            case "bool":
+                return bool(var.get())
 
-        if ftype == "bool":
-            return bool(var.get())
+            case "choice":
+                return raw
 
-        if ftype == "choice":
-            return raw
+            case "json":
+                s = raw.strip()
+                try:
+                    return json.loads(s)
+                except Exception:
+                    return s
 
-        if ftype == "json":
-            return json.loads(raw.strip())
-
-        if ftype == "rgb":
-            s = raw.strip()
-            if s.startswith("["):
-                v = json.loads(s)
-                if not (isinstance(v, list) and len(v) == 3):
-                    raise ValueError("rgb must be [R,G,B]")
-                return [int(v[0]), int(v[1]), int(v[2])]
-            parts = [p.strip() for p in s.split(",")]
-            if len(parts) != 3:
-                raise ValueError("rgb must be 'R,G,B'")
-            return [int(parts[0]), int(parts[1]), int(parts[2])]
+            case "rgb":
+                s = raw.strip()
+                if s.startswith("["):
+                    v = json.loads(s)
+                    if not (isinstance(v, list) and len(v) == 3):
+                        raise ValueError("rgb must be [R,G,B]")
+                    return [int(v[0]), int(v[1]), int(v[2])]
+                parts = [p.strip() for p in s.split(",")]
+                if len(parts) != 3:
+                    raise ValueError("rgb must be 'R,G,B'")
+                return [int(parts[0]), int(parts[1]), int(parts[2])]
+            
+            case "expr":
+                    return raw
 
         raise ValueError(f"Unsupported type: {ftype}")
 
@@ -637,6 +652,7 @@ class App:
         ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
         ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 6))
 
+        ttk.Button(top, text="Export .py", command= lambda: ScriptToPy.export_script_to_python(self)).grid(row=1, column=14, padx=(0, 6))
         ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=15, padx=(0, 6))
         ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=1, column=16, padx=(0, 6))
 
