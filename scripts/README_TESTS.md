@@ -4,6 +4,16 @@ This directory contains test scripts to help verify the functionality of the Con
 
 ## Test Scripts
 
+### test_rapid_buttons.json
+**Rapid button change test** - Tests immediate serial transmission.
+- Alternating buttons every 1ms
+- Rapid sequences with no gaps
+- Ultra-fast combos (frame-perfect inputs)
+- Mashing faster than keepalive (20ms, 5ms cycles)
+- Back-to-back button presses
+- **Duration**: ~5 seconds
+- **Use case**: Verify no button presses are missed due to transmission delays
+
 ### test_timing_precision.json
 **Timing precision test** - Tests the high-precision timing system.
 - Sub-10ms wait precision

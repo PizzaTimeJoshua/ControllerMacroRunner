@@ -240,7 +240,23 @@ Byte 1: High byte (L=0x01, R=0x02, X=0x04, Y=0x08)
 Byte 2: Low byte (A=0x01, B=0x02, Right=0x04, Left=0x08, Up=0x10, Down=0x20, Select=0x40, Start=0x80)
 ```
 
-**Keep-alive**: ~20 Hz (50 ms interval) to prevent receiver timeout
+**Immediate Send Architecture**:
+- `set_buttons()` and `set_state()` **immediately** send packets to the serial device
+- No delay waiting for keepalive thread
+- Ensures accurate transmission even for rapid button changes (< 50ms intervals)
+- `ser.flush()` called to guarantee immediate transmission
+
+**Keep-alive Thread**:
+- Runs at ~20 Hz (50 ms interval) as backup
+- Re-transmits current state periodically
+- Prevents receiver timeout
+- Acts as safety net, not primary transmission mechanism
+
+**Why This Matters**:
+- Enables button changes faster than 50ms (e.g., 1ms, 5ms, 10ms)
+- No missed button presses due to transmission delays
+- Critical for ultra-fast mashing (200+ presses/sec)
+- Ensures frame-perfect combos and rapid sequences work correctly
 
 ### 4. 3DS Backend
 

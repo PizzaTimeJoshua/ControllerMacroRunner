@@ -26,13 +26,15 @@
 
   - Connect to a COM port at 1,000,000 baud
 
-  - Sends keep-alive packets at ~20 Hz (50 ms)
+  - **Immediate packet transmission** - no delay for button changes
+
+  - Sends keep-alive packets at ~20 Hz (50 ms) as backup
 
   - Pairing warm-up (neutral packets) on connect
 
   - Supports changing channels
 
-  - Supports button press/hold behavior
+  - Supports rapid button sequences and ultra-fast mashing
 
 - Script Editor
 
