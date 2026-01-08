@@ -538,20 +538,40 @@ Result stored in `$match` (boolean true/false)
 
 ### How to: Export Script to Python
 
-Use `ScriptToPy.py` to convert compatible scripts:
+Use `ScriptToPy.py` to convert compatible scripts to standalone Python files:
 
-**Limitations:**
-- Cannot export scripts using: `find_color`, `goto`, `$frame` references
-- Only supports: `press`, `hold`, `wait`, variables, `if/while`, `run_python`
+**Supported Commands:**
+- ✅ `comment`, `wait`, `press`, `hold`, `mash`
+- ✅ `set`, `add` (variables)
+- ✅ `if/end_if`, `while/end_while` (control flow)
+- ✅ `run_python` (Python script execution)
+
+**Unsupported Commands (Export Limitations):**
+- ❌ `find_color` - Camera/vision commands (no camera runtime in export)
+- ❌ `label`, `goto` - Not compatible with structured Python export
+- ❌ `$frame` references - Camera frame payload not supported
+- ❌ `tap_touch` - 3DS-specific command
+
+**Benefits:**
+- **No timing delays** - Direct execution without engine overhead
+- **Standalone** - Single Python file with all dependencies
+- **Performance** - Native serial communication
+- **Distribution** - Easy to share and deploy
 
 **Usage (programmatically):**
 ```python
-from ScriptToPy import script_to_python, export_script
+from ScriptToPy import export_script_to_python
 
-script = [{"cmd": "press", "buttons": ["A"], "ms": 50}]
-python_code = script_to_python(script)
-print(python_code)
+# From main.py App instance
+export_script_to_python(self)
 ```
+
+**Generated Code Includes:**
+- Serial communication functions
+- Button mapping
+- Keep-alive mechanism
+- All command implementations (press, mash, wait, etc.)
+- Variable declarations and control flow
 
 ---
 
@@ -643,7 +663,7 @@ Edit file with guessed content
 | `end_while` | Loop block end | Yes | - |
 | `find_color` | Pixel color detection | No | `x`, `y`, `rgb`, `tol`, `out` |
 | `run_python` | Execute Python script | Yes | `file`, `args`, `out` |
-| `tap_touch` | 3DS touchscreen tap | Yes | `x`, `y`, `ms` |
+| `tap_touch` | 3DS touchscreen tap | No | `x`, `y`, `ms` |
 
 **Operators for if/while**: `==`, `!=`, `<`, `<=`, `>`, `>=`
 

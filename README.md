@@ -334,6 +334,59 @@ def main(frame_payload, x, y):
     # ... process ...
     return True
 ```
+
+#### Export to Python
+
+Scripts can be exported to standalone Python files for distribution or direct execution.
+
+**Supported Commands:**
+- ✅ `comment` - Comments in generated code
+- ✅ `wait` - Time delays
+- ✅ `press` - Button presses
+- ✅ `hold` - Button holds
+- ✅ `mash` - Button mashing (NEW)
+- ✅ `set`, `add` - Variable operations
+- ✅ `if/end_if` - Conditional blocks
+- ✅ `while/end_while` - Loop blocks
+- ✅ `run_python` - Python script execution
+
+**Limitations:**
+- ❌ `find_color` - Camera frame processing not included in export
+- ❌ `label`, `goto` - Not compatible with structured Python export
+- ❌ `$frame` references - Camera functionality excluded
+- ❌ `tap_touch` - 3DS-specific command not exported
+
+**Benefits of Python Export:**
+- **No timing delays** - Runs natively without engine overhead
+- **Standalone execution** - No need for the full application
+- **Distribution** - Share scripts as single Python files
+- **Performance** - Direct serial communication without intermediary
+- **Customization** - Edit generated Python code as needed
+
+**How to Export:**
+1. Load your script in the editor
+2. Click "Export to Python" button (if available in GUI)
+3. Or use `ScriptToPy.export_script_to_python()`
+4. Generated file includes all necessary serial communication code
+
+**Example Generated Code:**
+```python
+# Variables
+counter = 0  # from $counter
+
+# Pairing warm-up (~3 seconds neutral)
+send_buttons([])
+wait_with_keepalive(3.0)
+
+# Press A every second, 10 times
+while counter < 10:
+    press(['A'], 80.0)
+    wait_with_keepalive(920.0/1000.0)
+    counter += 1
+```
+
+---
+
 #### Adding Custom Commands
 
 Commands live in `ScriptEngine._build_default_registry()` as `CommandSpec` entries. To add one:
