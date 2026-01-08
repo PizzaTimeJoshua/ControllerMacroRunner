@@ -747,19 +747,15 @@ class ScriptEngine:
             # Convert to seconds for precise timing
             hold_sec = hold_ms / 1000.0
             wait_sec = wait_ms / 1000.0
-            cycle_duration = hold_sec + wait_sec
 
-            # Calculate number of full cycles and any remaining time
+            # Calculate end time
             total_duration = duration_ms / 1000.0
-            start_time = time.perf_counter()
-            end_time = start_time + total_duration
+            end_time = time.perf_counter() + total_duration
 
             # Main mashing loop with precise timing
             while time.perf_counter() < end_time:
                 if ctx["stop"].is_set():
                     break
-
-                cycle_start = time.perf_counter()
 
                 # Press buttons
                 backend.set_buttons(buttons)

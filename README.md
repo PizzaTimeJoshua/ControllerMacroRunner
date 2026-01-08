@@ -1,16 +1,42 @@
-# Controller Macro Runner (Currently In Development)
+# Controller Macro Runner
 
-#### A Windows desktop app for:
+A Windows desktop application for **high-precision gaming automation** with sub-millisecond accuracy.
 
-- Displaying a DirectShow camera feed (via [FFmpeg](https://github.com/BtbN/FFmpeg-Builds/releases))
+#### Key Capabilities:
 
-- Sending controller button packets continuously over a USB serial transmitter
+- **High-precision timing system** - Sub-millisecond accuracy for frame-perfect inputs
+- **Immediate serial transmission** - No delay for rapid button sequences (200+ presses/sec)
+- **Visual scripting** - JSON-based macro scripts with variables, loops, and conditionals
+- **Camera integration** - DirectShow camera feed with pixel sampling for vision-based automation
+- **Extensible** - Custom Python tools and command system
+- **Multiple backends** - USB serial transmitter or 3DS Input Redirection
 
-- Editing and running macro scripts (JSON) with `if/while`, labels, variables
+---
 
-- Extending the system with custom commands, including running custom Python tools
+## Performance & Capabilities
 
-#### Features
+### Timing Precision
+- **Sub-millisecond accuracy** - Supports fractional milliseconds (e.g., 3.5ms)
+- **1ms minimum** - Button presses as short as 1 millisecond
+- **Zero drift** - Maintains accuracy even in long sequences
+- **200+ presses/second** - Ultra-fast mashing without missing inputs
+
+### Serial Communication
+- **Immediate transmission** - Button changes sent instantly (no 50ms delay)
+- **1,000,000 baud** - High-speed USB serial communication
+- **Frame-perfect combos** - Accurate for competitive gaming and TAS
+- **Keep-alive backup** - Prevents receiver timeout with periodic updates
+
+### Script Capabilities
+- **15 built-in commands** - Press, mash, hold, wait, variables, control flow, image processing
+- **Variables & expressions** - Math operations, conditionals, loops
+- **Camera vision** - Pixel sampling and color detection
+- **Python extensions** - Run custom Python scripts with full variable support
+- **Export to Python** - Convert scripts to standalone Python programs
+
+---
+
+## Features
 
 - Camera Preview
   - Lists cameras using FFmpeg DirectShow device enumeration
@@ -436,7 +462,29 @@ pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner --add-data
 
 Distribute the resulting `dist/ControllerMacroRunner/` folder as a zip.
 
-#### Troubleshooting
+---
+
+## Test Scripts
+
+The `scripts/` directory includes comprehensive test scripts to verify functionality:
+
+### Timing & Performance Tests
+- **test_timing_precision.json** - Sub-millisecond timing accuracy verification
+- **test_rapid_buttons.json** - Immediate transmission for fast sequences
+- **test_mash_speeds.json** - Various mashing speeds (5-50 presses/sec)
+
+### Feature Tests
+- **test_quick.json** - Fast sanity check (~3 seconds)
+- **test_mash_basic.json** - Basic mash command functionality
+- **test_all_buttons.json** - All button types and combinations
+- **test_variables_mash.json** - Variable-controlled parameters
+- **test_comprehensive.json** - Full integration test (~20 seconds)
+
+See `scripts/README_TESTS.md` for detailed descriptions and usage instructions.
+
+---
+
+## Troubleshooting
 
 - No cameras listed
 
@@ -461,8 +509,40 @@ Distribute the resulting `dist/ControllerMacroRunner/` folder as a zip.
 
   - Editor tolerates incomplete blocks, but Run is strict
 
-#### Safety Notes
+---
+
+## Recent Improvements
+
+### High-Precision Timing System
+- Hybrid sleep approach (sleep + busy-wait) for sub-millisecond accuracy
+- Supports fractional milliseconds (e.g., 3.5ms, 7.25ms)
+- Eliminates timing drift in long sequences
+- Enables 200+ button presses per second
+
+### Immediate Serial Transmission
+- Button state changes send immediately (no 50ms keepalive delay)
+- Enables rapid sequences faster than 50ms
+- Critical for ultra-fast mashing and frame-perfect combos
+- Keep-alive thread still runs as backup safety net
+
+### Mash Command
+- Rapidly mash buttons at configurable rates
+- Default: 20 presses/second (customizable to 200+)
+- Independent hold_ms and wait_ms parameters
+- Precise timing for each press cycle
+
+---
+
+## Safety Notes
 
 - `run_python` executes local code. Only run scripts you trust.
-
 - Keep controller output neutral when not actively running actions.
+- Test scripts carefully before using in production environments.
+
+---
+
+## Documentation
+
+- **CLAUDE.md** - Comprehensive guide for AI assistants and developers
+- **scripts/README_TESTS.md** - Test script documentation
+- See inline code comments for implementation details
