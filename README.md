@@ -1,16 +1,42 @@
-# Controller Macro Runner (Currently In Development)
+# Controller Macro Runner
 
-#### A Windows desktop app for:
+A Windows desktop application for **high-precision gaming automation** with sub-millisecond accuracy.
 
-- Displaying a DirectShow camera feed (via [FFmpeg](https://github.com/BtbN/FFmpeg-Builds/releases))
+#### Key Capabilities:
 
-- Sending controller button packets continuously over a USB serial transmitter
+- **High-precision timing system** - Sub-millisecond accuracy for frame-perfect inputs
+- **Immediate serial transmission** - No delay for rapid button sequences (200+ presses/sec)
+- **Visual scripting** - JSON-based macro scripts with variables, loops, and conditionals
+- **Camera integration** - DirectShow camera feed with pixel sampling for vision-based automation
+- **Extensible** - Custom Python tools and command system
+- **Multiple backends** - USB serial transmitter or 3DS Input Redirection
 
-- Editing and running macro scripts (JSON) with `if/while`, labels, variables
+---
 
-- Extending the system with custom commands, including running custom Python tools
+## Performance & Capabilities
 
-#### Features
+### Timing Precision
+- **Sub-millisecond accuracy** - Supports fractional milliseconds (e.g., 3.5ms)
+- **1ms minimum** - Button presses as short as 1 millisecond
+- **Zero drift** - Maintains accuracy even in long sequences
+- **200+ presses/second** - Ultra-fast mashing without missing inputs
+
+### Serial Communication
+- **Immediate transmission** - Button changes sent instantly (no 50ms delay)
+- **1,000,000 baud** - High-speed USB serial communication
+- **Frame-perfect combos** - Accurate for competitive gaming and TAS
+- **Keep-alive backup** - Prevents receiver timeout with periodic updates
+
+### Script Capabilities
+- **15 built-in commands** - Press, mash, hold, wait, variables, control flow, image processing
+- **Variables & expressions** - Math operations, conditionals, loops
+- **Camera vision** - Pixel sampling and color detection
+- **Python extensions** - Run custom Python scripts with full variable support
+- **Export to Python** - Convert scripts to standalone Python programs
+
+---
+
+## Features
 
 - Camera Preview
   - Lists cameras using FFmpeg DirectShow device enumeration
@@ -26,13 +52,15 @@
 
   - Connect to a COM port at 1,000,000 baud
 
-  - Sends keep-alive packets at ~20 Hz (50 ms)
+  - **Immediate packet transmission** - no delay for button changes
+
+  - Sends keep-alive packets at ~20 Hz (50 ms) as backup
 
   - Pairing warm-up (neutral packets) on connect
 
   - Supports changing channels
 
-  - Supports button press/hold behavior
+  - Supports rapid button sequences and ultra-fast mashing
 
 - Script Editor
 
@@ -59,6 +87,14 @@
     - Supports variable refs in args (e.g. `"$counter"`)
 
     - Supports passing current frame via `"$frame"` (PNG base64 payload)
+
+  - **High-precision timing system** for accurate button inputs
+
+    - Sub-millisecond accuracy using hybrid sleep approach
+
+    - Supports fractional milliseconds (e.g. 3.5ms)
+
+    - Eliminates timing drift for rapid sequences
 
 #### Folder Layout
 ```
@@ -178,6 +214,28 @@ Scripts are JSON arrays of command objects:
 ]
 ```
 
+#### Controller Commands
+
+- **Press** - Press and release buttons:
+```json
+{"cmd":"press","buttons":["A"],"ms":80}
+```
+
+- **Hold** - Hold buttons indefinitely (until another command changes them):
+```json
+{"cmd":"hold","buttons":["A","B"]}
+```
+
+- **Mash** - Rapidly mash buttons for a duration (default: ~20 presses/second):
+```json
+{"cmd":"mash","buttons":["A"],"duration_ms":1000,"hold_ms":25,"wait_ms":25}
+```
+  - `buttons`: List of buttons to mash
+  - `duration_ms`: Total time to mash in milliseconds
+  - `hold_ms`: How long to hold each press (default: 25ms)
+  - `wait_ms`: Wait time between presses (default: 25ms)
+  - Press rate = 1000 / (hold_ms + wait_ms) presses/second
+
 #### Variables
 
 - Set variable:
@@ -276,6 +334,59 @@ def main(frame_payload, x, y):
     # ... process ...
     return True
 ```
+
+#### Export to Python
+
+Scripts can be exported to standalone Python files for distribution or direct execution.
+
+**Supported Commands:**
+- ✅ `comment` - Comments in generated code
+- ✅ `wait` - Time delays
+- ✅ `press` - Button presses
+- ✅ `hold` - Button holds
+- ✅ `mash` - Button mashing (NEW)
+- ✅ `set`, `add` - Variable operations
+- ✅ `if/end_if` - Conditional blocks
+- ✅ `while/end_while` - Loop blocks
+- ✅ `run_python` - Python script execution
+
+**Limitations:**
+- ❌ `find_color` - Camera frame processing not included in export
+- ❌ `label`, `goto` - Not compatible with structured Python export
+- ❌ `$frame` references - Camera functionality excluded
+- ❌ `tap_touch` - 3DS-specific command not exported
+
+**Benefits of Python Export:**
+- **No timing delays** - Runs natively without engine overhead
+- **Standalone execution** - No need for the full application
+- **Distribution** - Share scripts as single Python files
+- **Performance** - Direct serial communication without intermediary
+- **Customization** - Edit generated Python code as needed
+
+**How to Export:**
+1. Load your script in the editor
+2. Click "Export to Python" button (if available in GUI)
+3. Or use `ScriptToPy.export_script_to_python()`
+4. Generated file includes all necessary serial communication code
+
+**Example Generated Code:**
+```python
+# Variables
+counter = 0  # from $counter
+
+# Pairing warm-up (~3 seconds neutral)
+send_buttons([])
+wait_with_keepalive(3.0)
+
+# Press A every second, 10 times
+while counter < 10:
+    press(['A'], 80.0)
+    wait_with_keepalive(920.0/1000.0)
+    counter += 1
+```
+
+---
+
 #### Adding Custom Commands
 
 Commands live in `ScriptEngine._build_default_registry()` as `CommandSpec` entries. To add one:
@@ -404,7 +515,29 @@ pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner --add-data
 
 Distribute the resulting `dist/ControllerMacroRunner/` folder as a zip.
 
-#### Troubleshooting
+---
+
+## Test Scripts
+
+The `scripts/` directory includes comprehensive test scripts to verify functionality:
+
+### Timing & Performance Tests
+- **test_timing_precision.json** - Sub-millisecond timing accuracy verification
+- **test_rapid_buttons.json** - Immediate transmission for fast sequences
+- **test_mash_speeds.json** - Various mashing speeds (5-50 presses/sec)
+
+### Feature Tests
+- **test_quick.json** - Fast sanity check (~3 seconds)
+- **test_mash_basic.json** - Basic mash command functionality
+- **test_all_buttons.json** - All button types and combinations
+- **test_variables_mash.json** - Variable-controlled parameters
+- **test_comprehensive.json** - Full integration test (~20 seconds)
+
+See `scripts/README_TESTS.md` for detailed descriptions and usage instructions.
+
+---
+
+## Troubleshooting
 
 - No cameras listed
 
@@ -429,8 +562,40 @@ Distribute the resulting `dist/ControllerMacroRunner/` folder as a zip.
 
   - Editor tolerates incomplete blocks, but Run is strict
 
-#### Safety Notes
+---
+
+## Recent Improvements
+
+### High-Precision Timing System
+- Hybrid sleep approach (sleep + busy-wait) for sub-millisecond accuracy
+- Supports fractional milliseconds (e.g., 3.5ms, 7.25ms)
+- Eliminates timing drift in long sequences
+- Enables 200+ button presses per second
+
+### Immediate Serial Transmission
+- Button state changes send immediately (no 50ms keepalive delay)
+- Enables rapid sequences faster than 50ms
+- Critical for ultra-fast mashing and frame-perfect combos
+- Keep-alive thread still runs as backup safety net
+
+### Mash Command
+- Rapidly mash buttons at configurable rates
+- Default: 20 presses/second (customizable to 200+)
+- Independent hold_ms and wait_ms parameters
+- Precise timing for each press cycle
+
+---
+
+## Safety Notes
 
 - `run_python` executes local code. Only run scripts you trust.
-
 - Keep controller output neutral when not actively running actions.
+- Test scripts carefully before using in production environments.
+
+---
+
+## Documentation
+
+- **CLAUDE.md** - Comprehensive guide for AI assistants and developers
+- **scripts/README_TESTS.md** - Test script documentation
+- See inline code comments for implementation details

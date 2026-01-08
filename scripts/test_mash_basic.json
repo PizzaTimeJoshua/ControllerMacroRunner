@@ -1,0 +1,18 @@
+[
+  {"cmd": "comment", "text": "Basic Mash Command Test"},
+  {"cmd": "comment", "text": "Tests the mash command with default settings"},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "Test 1: Mash A button for 1 second (default 20 presses/sec)"},
+  {"cmd": "mash", "buttons": ["A"], "duration_ms": 1000},
+  {"cmd": "wait", "ms": 500},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "Test 2: Mash B button for 2 seconds"},
+  {"cmd": "mash", "buttons": ["B"], "duration_ms": 2000},
+  {"cmd": "wait", "ms": 500},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "Test 3: Mash multiple buttons (A+B) for 1 second"},
+  {"cmd": "mash", "buttons": ["A", "B"], "duration_ms": 1000},
+  {"cmd": "wait", "ms": 500},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "Test complete!"}
+]

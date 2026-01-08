@@ -12,6 +12,26 @@ TOUCH_W_PX = 320
 TOUCH_H_PX = 240
 HID_AXIS_MAX = 0xFFF
 
+def precise_sleep(duration_sec):
+    """High-precision sleep for 3DS timing"""
+    if duration_sec <= 0:
+        return
+    if duration_sec < 0.002:
+        end = time.perf_counter() + duration_sec
+        while time.perf_counter() < end:
+            pass
+        return
+    sleep_until = time.perf_counter() + duration_sec - 0.002
+    while time.perf_counter() < sleep_until:
+        remaining = sleep_until - time.perf_counter()
+        if remaining > 0.005:
+            time.sleep(min(remaining * 0.5, 0.001))
+        else:
+            break
+    end = time.perf_counter() + duration_sec - (time.perf_counter() - (sleep_until - duration_sec + 0.002))
+    while time.perf_counter() < end:
+        pass
+
 def clamp(v: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
@@ -167,12 +187,12 @@ class ThreeDSBackend:
         self.client.press_touch(int(x_px), int(y_px))
         self.client.send_update()
         if down_time > 0:
-            time.sleep(float(down_time))
+            precise_sleep(float(down_time))
         # Up
         self.client.reset_touch()
         self.client.send_update()
         if settle > 0:
-            time.sleep(float(settle))
+            precise_sleep(float(settle))
 
     def reset_neutral(self):
         self.client.reset_neutral()

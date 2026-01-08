@@ -54,12 +54,26 @@ class SerialController:
     def connected(self):
         return self.ser is not None and self.ser.is_open
 
+    def _send_packet(self, high, low):
+        """Immediately send a packet to the serial device."""
+        if not self.connected:
+            return
+        try:
+            self.ser.write(bytearray([0x54, high & 0xFF, low & 0xFF]))
+            self.ser.flush()  # Ensure immediate transmission
+        except Exception as e:
+            self.status_cb(f"Serial write error: {e}")
+
     def set_state(self, high, low):
+        """Set button state and immediately send to device."""
         with self._lock:
             self._high = high & 0xFF
             self._low = low & 0xFF
+            # Immediately send the new state
+            self._send_packet(self._high, self._low)
 
     def set_buttons(self, buttons):
+        """Set buttons and immediately send to device."""
         high, low = buttons_to_bytes(buttons)
         self.set_state(high, low)
 

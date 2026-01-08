@@ -1,0 +1,20 @@
+[
+  {"cmd": "comment", "text": "Quick Test - Fast verification of mash command"},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "1. Single button mash"},
+  {"cmd": "mash", "buttons": ["A"], "duration_ms": 500},
+  {"cmd": "wait", "ms": 300},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "2. Multiple buttons mash"},
+  {"cmd": "mash", "buttons": ["A", "B"], "duration_ms": 500},
+  {"cmd": "wait", "ms": 300},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "3. Fast mash"},
+  {"cmd": "mash", "buttons": ["X"], "duration_ms": 500, "hold_ms": 10, "wait_ms": 10},
+  {"cmd": "wait", "ms": 300},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "4. Slow mash"},
+  {"cmd": "mash", "buttons": ["Y"], "duration_ms": 500, "hold_ms": 50, "wait_ms": 50},
+  {"cmd": "comment", "text": ""},
+  {"cmd": "comment", "text": "Quick test complete!"}
+]
