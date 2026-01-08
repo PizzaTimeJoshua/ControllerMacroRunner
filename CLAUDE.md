@@ -416,6 +416,42 @@ pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner \
 
 Result stored in `$match` (boolean true/false)
 
+### How to: Use mash Command
+
+```json
+{
+  "cmd": "mash",
+  "buttons": ["A"],   # Buttons to mash
+  "duration_ms": 1000, # Mash for 1 second
+  "hold_ms": 25,      # Hold each press for 25ms (optional)
+  "wait_ms": 25       # Wait 25ms between presses (optional)
+}
+```
+
+**Default behavior**: 20 presses per second (25ms hold + 25ms wait = 50ms per cycle)
+
+**Example - Fast mashing** (40 presses/second):
+```json
+{
+  "cmd": "mash",
+  "buttons": ["A", "B"],
+  "duration_ms": 2000,
+  "hold_ms": 12,
+  "wait_ms": 13
+}
+```
+
+**Example - Slower mashing** (10 presses/second):
+```json
+{
+  "cmd": "mash",
+  "buttons": ["A"],
+  "duration_ms": 5000,
+  "hold_ms": 50,
+  "wait_ms": 50
+}
+```
+
 ### How to: Control Script Flow
 
 **Infinite loop:**
@@ -546,6 +582,7 @@ Edit file with guessed content
 | `wait` | Delay execution | Yes | `ms` |
 | `press` | Press buttons briefly | Yes | `buttons` (list), `ms` |
 | `hold` | Hold buttons | Yes | `buttons` (list), `ms` |
+| `mash` | Rapidly mash buttons | Yes | `buttons` (list), `duration_ms`, `hold_ms` (default 25), `wait_ms` (default 25) |
 | `set` | Set variable | Yes | `var`, `value` |
 | `add` | Add to variable | Yes | `var`, `value` |
 | `label` | Define jump target | No | `name` |

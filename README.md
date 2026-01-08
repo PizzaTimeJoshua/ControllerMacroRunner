@@ -178,6 +178,28 @@ Scripts are JSON arrays of command objects:
 ]
 ```
 
+#### Controller Commands
+
+- **Press** - Press and release buttons:
+```json
+{"cmd":"press","buttons":["A"],"ms":80}
+```
+
+- **Hold** - Hold buttons indefinitely (until another command changes them):
+```json
+{"cmd":"hold","buttons":["A","B"]}
+```
+
+- **Mash** - Rapidly mash buttons for a duration (default: ~20 presses/second):
+```json
+{"cmd":"mash","buttons":["A"],"duration_ms":1000,"hold_ms":25,"wait_ms":25}
+```
+  - `buttons`: List of buttons to mash
+  - `duration_ms`: Total time to mash in milliseconds
+  - `hold_ms`: How long to hold each press (default: 25ms)
+  - `wait_ms`: Wait time between presses (default: 25ms)
+  - Press rate = 1000 / (hold_ms + wait_ms) presses/second
+
 #### Variables
 
 - Set variable:

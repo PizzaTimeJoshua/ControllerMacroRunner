@@ -482,6 +482,12 @@ class ScriptEngine:
             return f"RunPython {c.get('file')}{a}{o}"
         def fmt_tap_touch(c):
             return f"TapTouch x={c.get('x')} y={c.get('y')} down={c.get('down_time', 0.1)} settle={c.get('settle', 0.1)}"
+        def fmt_mash(c):
+            btns = c.get("buttons", [])
+            duration = c.get("duration_ms", 1000)
+            hold = c.get("hold_ms", 25)
+            wait = c.get("wait_ms", 25)
+            return f"Mash {', '.join(btns) if btns else '(none)'} for {duration}ms (hold:{hold}ms wait:{wait}ms)"
 
 
         # ---- execution fns
@@ -650,6 +656,45 @@ class ScriptEngine:
 
             backend.tap_touch(x, y, down_time=down_time, settle=settle)
 
+        def cmd_mash(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                messagebox.showerror("mash: buttons must be a list")
+                return
+
+            duration_ms = float(resolve_number(ctx, c.get("duration_ms", 1000)))
+            hold_ms = float(resolve_number(ctx, c.get("hold_ms", 25)))
+            wait_ms = float(resolve_number(ctx, c.get("wait_ms", 25)))
+
+            end_time = time.monotonic() + duration_ms / 1000.0
+
+            while time.monotonic() < end_time:
+                if ctx["stop"].is_set():
+                    break
+
+                # Press buttons
+                backend.set_buttons(buttons)
+                press_end = time.monotonic() + hold_ms / 1000.0
+                while time.monotonic() < press_end:
+                    if ctx["stop"].is_set():
+                        break
+                    time.sleep(0.001)
+
+                # Release buttons
+                backend.set_buttons([])
+                wait_end = time.monotonic() + wait_ms / 1000.0
+                while time.monotonic() < wait_end:
+                    if ctx["stop"].is_set():
+                        break
+                    time.sleep(0.001)
+
+            # Ensure buttons are released at the end
+            backend.set_buttons([])
+
 
 
         cond_schema = [
@@ -693,6 +738,19 @@ class ScriptEngine:
                 format_fn=fmt_hold,
                 group="Controller",
                 order=20
+            ),
+            CommandSpec(
+                "mash", ["buttons", "duration_ms"], cmd_mash,
+                doc="Rapidly mash buttons for a duration. Default: ~20 presses/second.",
+                arg_schema=[
+                    {"key": "buttons", "type": "buttons", "default": ["A"], "help": "Buttons to mash"},
+                    {"key": "duration_ms", "type": "json", "default": 1000, "help": "Total mashing duration in milliseconds"},
+                    {"key": "hold_ms", "type": "json", "default": 25, "help": "How long to hold each press (default: 25ms)"},
+                    {"key": "wait_ms", "type": "json", "default": 25, "help": "Wait between presses (default: 25ms)"},
+                ],
+                format_fn=fmt_mash,
+                group="Controller",
+                order=15
             ),
             CommandSpec(
                 "label", ["name"], cmd_label,
