@@ -4,6 +4,15 @@ This directory contains test scripts to help verify the functionality of the Con
 
 ## Test Scripts
 
+### test_timing_precision.json
+**Timing precision test** - Tests the high-precision timing system.
+- Sub-10ms wait precision
+- Rapid sequential presses (1ms intervals)
+- Ultra-fast mashing (50, 100, 200 presses/sec)
+- Mixed fractional millisecond timings
+- **Duration**: ~5 seconds
+- **Use case**: Verify sub-millisecond timing accuracy
+
 ### test_quick.json
 **Quick verification test** - Fast test to verify basic mash functionality.
 - Single button mash

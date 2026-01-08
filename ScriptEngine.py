@@ -11,6 +11,82 @@ import ast
 import math
 import re
 from tkinter import messagebox
+
+# ----------------------------
+# High-Precision Timing Utilities
+# ----------------------------
+
+def precise_sleep(duration_sec):
+    """
+    High-precision sleep using a hybrid approach:
+    - Use time.sleep() for most of the duration
+    - Busy-wait for the final ~2ms for precision
+
+    This minimizes CPU usage while maintaining sub-millisecond precision.
+    """
+    if duration_sec <= 0:
+        return
+
+    # For very short durations (< 2ms), use pure busy-wait
+    if duration_sec < 0.002:
+        end = time.perf_counter() + duration_sec
+        while time.perf_counter() < end:
+            pass  # Busy-wait for precision
+        return
+
+    # For longer durations, sleep most of the time, then busy-wait
+    # Sleep until 2ms before target to avoid oversleeping
+    sleep_until = time.perf_counter() + duration_sec - 0.002
+
+    # Sleep in small chunks, checking periodically
+    while time.perf_counter() < sleep_until:
+        remaining = sleep_until - time.perf_counter()
+        if remaining > 0.005:  # If more than 5ms remaining, sleep
+            time.sleep(min(remaining * 0.5, 0.001))  # Sleep conservatively
+        else:
+            break
+
+    # Busy-wait for the final ~2ms for precision
+    end = time.perf_counter() + duration_sec - (time.perf_counter() - (sleep_until - duration_sec + 0.002))
+    while time.perf_counter() < end:
+        pass
+
+def precise_sleep_interruptible(duration_sec, stop_event):
+    """
+    High-precision interruptible sleep that checks stop_event.
+    Returns True if interrupted, False if completed.
+    """
+    if duration_sec <= 0:
+        return False
+
+    end_time = time.perf_counter() + duration_sec
+
+    # For very short durations, just busy-wait with stop checks
+    if duration_sec < 0.002:
+        while time.perf_counter() < end_time:
+            if stop_event.is_set():
+                return True
+        return False
+
+    # For longer durations, check stop event periodically
+    while time.perf_counter() < end_time:
+        if stop_event.is_set():
+            return True
+
+        remaining = end_time - time.perf_counter()
+        if remaining <= 0:
+            break
+
+        # Sleep or busy-wait depending on remaining time
+        if remaining > 0.002:
+            # Sleep in small chunks for most of the duration
+            time.sleep(min(remaining * 0.5, 0.001))
+        else:
+            # Busy-wait for final precision
+            pass
+
+    return False
+
 # ----------------------------
 # Script Command Spec
 # ----------------------------
@@ -495,11 +571,8 @@ class ScriptEngine:
             ms_raw = c.get("ms", 0)
             ms = float(resolve_number(ctx, ms_raw))
 
-            end_t = time.monotonic() + ms / 1000.0
-            while time.monotonic() < end_t:
-                if ctx["stop"].is_set():
-                    break
-                time.sleep(0.01)
+            # Use high-precision interruptible sleep
+            precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
 
 
         def cmd_press(ctx, c):
@@ -512,15 +585,16 @@ class ScriptEngine:
                 messagebox.showerror("press: buttons must be a list")
                 return
 
-            # Resolve variable refs in buttons list if you support it; otherwise leave:
+            # Press buttons with precise timing
             backend.set_buttons(buttons)
 
             ms_raw = c.get("ms", 50)
             ms = float(resolve_number(ctx, ms_raw))
             if ms > 0:
-                time.sleep(ms / 1000.0)
+                # Use high-precision interruptible sleep
+                precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
 
-            # release
+            # Release buttons
             backend.set_buttons([])
 
 
@@ -670,27 +744,42 @@ class ScriptEngine:
             hold_ms = float(resolve_number(ctx, c.get("hold_ms", 25)))
             wait_ms = float(resolve_number(ctx, c.get("wait_ms", 25)))
 
-            end_time = time.monotonic() + duration_ms / 1000.0
+            # Convert to seconds for precise timing
+            hold_sec = hold_ms / 1000.0
+            wait_sec = wait_ms / 1000.0
+            cycle_duration = hold_sec + wait_sec
 
-            while time.monotonic() < end_time:
+            # Calculate number of full cycles and any remaining time
+            total_duration = duration_ms / 1000.0
+            start_time = time.perf_counter()
+            end_time = start_time + total_duration
+
+            # Main mashing loop with precise timing
+            while time.perf_counter() < end_time:
                 if ctx["stop"].is_set():
                     break
 
+                cycle_start = time.perf_counter()
+
                 # Press buttons
                 backend.set_buttons(buttons)
-                press_end = time.monotonic() + hold_ms / 1000.0
-                while time.monotonic() < press_end:
-                    if ctx["stop"].is_set():
-                        break
-                    time.sleep(0.001)
+
+                # Hold for precise duration
+                if precise_sleep_interruptible(hold_sec, ctx["stop"]):
+                    break  # Interrupted
 
                 # Release buttons
                 backend.set_buttons([])
-                wait_end = time.monotonic() + wait_ms / 1000.0
-                while time.monotonic() < wait_end:
-                    if ctx["stop"].is_set():
-                        break
-                    time.sleep(0.001)
+
+                # Check if we have time for a full wait cycle
+                time_remaining = end_time - time.perf_counter()
+                if time_remaining <= 0:
+                    break
+
+                # Wait for precise duration, but not longer than remaining time
+                wait_duration = min(wait_sec, time_remaining)
+                if precise_sleep_interruptible(wait_duration, ctx["stop"]):
+                    break  # Interrupted
 
             # Ensure buttons are released at the end
             backend.set_buttons([])

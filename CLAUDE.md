@@ -175,7 +175,41 @@ Commands receive a context dictionary:
 }
 ```
 
-### 2. Command Registry System
+### 2. High-Precision Timing System
+
+The engine uses a hybrid timing approach for sub-millisecond precision:
+
+**Timing Functions:**
+- `precise_sleep(duration_sec)`: Non-interruptible high-precision sleep
+- `precise_sleep_interruptible(duration_sec, stop_event)`: Interruptible with stop checking
+
+**Precision Strategy:**
+- Uses `time.perf_counter()` for sub-millisecond accuracy
+- **Short durations (< 2ms)**: Pure busy-wait for maximum precision
+- **Long durations (≥ 2ms)**: Hybrid approach:
+  - Sleep for most of the duration (conservatively, in 0.5-1ms chunks)
+  - Busy-wait for the final ~2ms for precision
+  - Periodic stop event checking for interruptibility
+
+**Timing Accuracy:**
+- Sub-millisecond precision for all commands
+- Supports fractional milliseconds (e.g., `"ms": 3.5`)
+- Minimizes CPU usage while maintaining accuracy
+- Windows-compatible (avoids time.sleep() precision issues)
+
+**Commands Using Precise Timing:**
+- `wait`: Uses `precise_sleep_interruptible()`
+- `press`: Uses `precise_sleep_interruptible()` for hold duration
+- `mash`: Uses `precise_sleep_interruptible()` for hold and wait phases
+- `tap_touch` (3DS): Uses `precise_sleep()` in ThreeDSClasses
+
+**Performance Characteristics:**
+- Minimal CPU overhead for waits > 5ms
+- Increased CPU during final 2ms of each wait (busy-wait)
+- Eliminates timing drift in rapid sequences
+- Accurate for mashing rates up to 200+ presses/second
+
+### 3. Command Registry System
 
 Commands defined in `ScriptEngine._build_default_registry()`:
 

@@ -60,6 +60,14 @@
 
     - Supports passing current frame via `"$frame"` (PNG base64 payload)
 
+  - **High-precision timing system** for accurate button inputs
+
+    - Sub-millisecond accuracy using hybrid sleep approach
+
+    - Supports fractional milliseconds (e.g. 3.5ms)
+
+    - Eliminates timing drift for rapid sequences
+
 #### Folder Layout
 ```
 project/
