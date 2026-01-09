@@ -47,6 +47,15 @@ A Windows desktop application for **high-precision gaming automation** with sub-
 
   - Click-to-copy coordinates for use in scripts
 
+- Audio Streaming (Optional)
+  - Lists available audio input and output devices
+
+  - Real-time audio passthrough from input to output
+
+  - Positioned below video output, hidden when camera panel is hidden
+
+  - Requires PyAudio library (optional dependency)
+
 - Controller / Serial
   - Uses a [USB Wireless TX (Transmitter) by insideGadgets](https://shop.insidegadgets.com/product/usb-wireless-tx-transmitter/)
 
@@ -125,10 +134,14 @@ The app will create `scripts/` and `py_scripts/` if missing.
 
   - pyserial
 
+  - pyaudio (optional, for audio streaming)
+
 Install:
 ```bat
-py -m pip install numpy pillow pyserial
+py -m pip install numpy pillow pyserial pyaudio
 ```
+
+Note: PyAudio is optional. If not installed, the audio feature will be disabled but the application will still function normally.
 
 
 FFmpeg:

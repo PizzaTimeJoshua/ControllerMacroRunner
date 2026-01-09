@@ -2,7 +2,7 @@
 Controller Macro Runner (Camera + Serial + Script Engine + Editor)
 
 Install:
-  pip install numpy pillow pyserial
+  pip install numpy pillow pyserial pyaudio
 
 FFmpeg:
   Ensure ffmpeg is on PATH:
@@ -25,6 +25,14 @@ import ThreeDSClasses
 import SerialController
 import ScriptEngine
 import ScriptToPy
+
+# Audio support (optional)
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    pyaudio = None
 
 
 def resource_path(rel_path: str) -> str:
@@ -93,6 +101,39 @@ def list_python_files():
         return []
     return sorted([n for n in os.listdir(folder) if n.lower().endswith(".py")])
 
+
+# ----------------------------
+# Audio (PyAudio)
+# ----------------------------
+
+def list_audio_devices():
+    """Returns (input_devices, output_devices) as lists of (index, name) tuples."""
+    if not PYAUDIO_AVAILABLE or pyaudio is None:
+        return [], []
+
+    try:
+        p = pyaudio.PyAudio()
+        inputs = []
+        outputs = []
+
+        for i in range(p.get_device_count()):
+            try:
+                info = p.get_device_info_by_index(i)
+                name = info.get('name', f'Device {i}')
+                max_in = info.get('maxInputChannels', 0)
+                max_out = info.get('maxOutputChannels', 0)
+
+                if max_in > 0:
+                    inputs.append((i, name))
+                if max_out > 0:
+                    outputs.append((i, name))
+            except Exception:
+                continue
+
+        p.terminate()
+        return inputs, outputs
+    except Exception:
+        return [], []
 
 
 # ----------------------------
@@ -483,6 +524,16 @@ class App:
         self.camera_panel_hidden = True
         self._saved_sash_x = None
         self.base_video_width = 640  # adjust if you want
+
+        # audio state
+        self.audio_input_var = tk.StringVar()
+        self.audio_output_var = tk.StringVar()
+        self.audio_pyaudio = None
+        self.audio_stream = None
+        self.audio_running = False
+        self.audio_thread = None
+        self.audio_input_devices = []
+        self.audio_output_devices = []
     
 
 
@@ -517,6 +568,7 @@ class App:
         self.refresh_cameras()
         self.refresh_ports()
         self.refresh_scripts()
+        self.refresh_audio_devices()
         self._update_title()
 
     # ---- title/dirty
@@ -697,6 +749,31 @@ class App:
         coord_bar.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         coord_bar.columnconfigure(0, weight=1)
         ttk.Label(coord_bar, textvariable=self.video_mouse_xy_var).grid(row=0, column=0, sticky="w")
+
+        # Audio controls (input)
+        self.audio_input_frame = ttk.Frame(left)
+        self.audio_input_frame.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        self.audio_input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(self.audio_input_frame, text="Audio Input:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.audio_input_combo = ttk.Combobox(self.audio_input_frame, textvariable=self.audio_input_var, state="readonly", width=30)
+        self.audio_input_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        ttk.Button(self.audio_input_frame, text="Refresh", command=self.refresh_audio_devices).grid(row=0, column=2, padx=(0, 6))
+        self.audio_toggle_btn = ttk.Button(self.audio_input_frame, text="Start Audio", command=self.toggle_audio)
+        self.audio_toggle_btn.grid(row=0, column=3)
+
+        # Audio controls (output)
+        self.audio_output_frame = ttk.Frame(left)
+        self.audio_output_frame.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        self.audio_output_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(self.audio_output_frame, text="Audio Output:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.audio_output_combo = ttk.Combobox(self.audio_output_frame, textvariable=self.audio_output_var, state="readonly", width=30)
+        self.audio_output_combo.grid(row=0, column=1, sticky="ew")
+
+        # Initially hide audio controls (camera panel starts hidden)
+        self.audio_input_frame.grid_remove()
+        self.audio_output_frame.grid_remove()
 
         self.video_label.grid(row=0, column=0, sticky="nsew")
 
@@ -1176,6 +1253,12 @@ class App:
         except Exception:
             pass
 
+        # Hide audio controls
+        if hasattr(self, "audio_input_frame"):
+            self.audio_input_frame.grid_remove()
+        if hasattr(self, "audio_output_frame"):
+            self.audio_output_frame.grid_remove()
+
         self.camera_panel_hidden = True
         self.set_status("Camera panel hidden.")
         self.cam_display_btn.configure(text="Show Cam")
@@ -1195,6 +1278,12 @@ class App:
                 self.main_pane.sash_place(0, x, 0)
         except Exception:
             pass
+
+        # Show audio controls
+        if hasattr(self, "audio_input_frame"):
+            self.audio_input_frame.grid()
+        if hasattr(self, "audio_output_frame"):
+            self.audio_output_frame.grid()
 
         self.camera_panel_hidden = False
         self.set_status("Camera panel shown.")
@@ -1274,6 +1363,130 @@ class App:
         self._disp_img_h = tk_img.height()
         self.video_label.imgtk = tk_img
         self.video_label.configure(image=tk_img)
+
+    # ---- audio
+    def refresh_audio_devices(self):
+        if not PYAUDIO_AVAILABLE:
+            self.audio_input_combo["values"] = ["PyAudio not installed"]
+            self.audio_output_combo["values"] = ["PyAudio not installed"]
+            self.audio_input_var.set("PyAudio not installed")
+            self.audio_output_var.set("PyAudio not installed")
+            if hasattr(self, "audio_toggle_btn"):
+                self.audio_toggle_btn.configure(state="disabled")
+            return
+
+        inputs, outputs = list_audio_devices()
+        self.audio_input_devices = inputs
+        self.audio_output_devices = outputs
+
+        input_names = [name for idx, name in inputs]
+        output_names = [name for idx, name in outputs]
+
+        self.audio_input_combo["values"] = input_names if input_names else ["No input devices"]
+        self.audio_output_combo["values"] = output_names if output_names else ["No output devices"]
+
+        if input_names and self.audio_input_var.get() not in input_names:
+            self.audio_input_var.set(input_names[0])
+        if output_names and self.audio_output_var.get() not in output_names:
+            self.audio_output_var.set(output_names[0])
+
+    def toggle_audio(self):
+        if self.audio_running:
+            self.stop_audio()
+        else:
+            self.start_audio()
+
+    def start_audio(self):
+        if not PYAUDIO_AVAILABLE:
+            messagebox.showwarning("Audio", "PyAudio is not installed.\nInstall with: pip install pyaudio")
+            return
+
+        input_name = self.audio_input_var.get().strip()
+        output_name = self.audio_output_var.get().strip()
+
+        if not input_name or input_name == "No input devices" or input_name == "PyAudio not installed":
+            messagebox.showwarning("Audio", "Select an audio input device.")
+            return
+        if not output_name or output_name == "No output devices" or output_name == "PyAudio not installed":
+            messagebox.showwarning("Audio", "Select an audio output device.")
+            return
+
+        # Find device indices
+        input_idx = None
+        output_idx = None
+
+        for idx, name in self.audio_input_devices:
+            if name == input_name:
+                input_idx = idx
+                break
+        for idx, name in self.audio_output_devices:
+            if name == output_name:
+                output_idx = idx
+                break
+
+        if input_idx is None or output_idx is None:
+            messagebox.showerror("Audio", "Could not find selected devices.\nTry refreshing the device list.")
+            return
+
+        try:
+            self.audio_pyaudio = pyaudio.PyAudio()
+
+            # Get device info to determine format
+            input_info = self.audio_pyaudio.get_device_info_by_index(input_idx)
+            output_info = self.audio_pyaudio.get_device_info_by_index(output_idx)
+
+            # Use common settings
+            sample_rate = int(min(input_info.get('defaultSampleRate', 44100),
+                                  output_info.get('defaultSampleRate', 44100)))
+            channels = min(int(input_info.get('maxInputChannels', 2)),
+                          int(output_info.get('maxOutputChannels', 2)))
+            chunk = 1024
+
+            # Open stream in callback mode for passthrough
+            def audio_callback(in_data, frame_count, time_info, status):
+                return (in_data, pyaudio.paContinue)
+
+            self.audio_stream = self.audio_pyaudio.open(
+                format=pyaudio.paInt16,
+                channels=channels,
+                rate=sample_rate,
+                input=True,
+                output=True,
+                input_device_index=input_idx,
+                output_device_index=output_idx,
+                frames_per_buffer=chunk,
+                stream_callback=audio_callback
+            )
+
+            self.audio_stream.start_stream()
+            self.audio_running = True
+            self.audio_toggle_btn.configure(text="Stop Audio")
+            self.set_status(f"Audio streaming: {input_name} → {output_name}")
+
+        except Exception as e:
+            messagebox.showerror("Audio error", f"Failed to start audio:\n{e}")
+            self.stop_audio()
+
+    def stop_audio(self):
+        self.audio_running = False
+        self.audio_toggle_btn.configure(text="Start Audio")
+
+        try:
+            if self.audio_stream:
+                self.audio_stream.stop_stream()
+                self.audio_stream.close()
+                self.audio_stream = None
+        except Exception:
+            pass
+
+        try:
+            if self.audio_pyaudio:
+                self.audio_pyaudio.terminate()
+                self.audio_pyaudio = None
+        except Exception:
+            pass
+
+        self.set_status("Audio stopped.")
 
     # ---- serial
     def refresh_ports(self):
@@ -2025,6 +2238,11 @@ class App:
         try:
             if self.cam_running:
                 self.stop_camera()
+        except Exception:
+            pass
+        try:
+            if self.audio_running:
+                self.stop_audio()
         except Exception:
             pass
 
