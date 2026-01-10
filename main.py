@@ -85,6 +85,155 @@ def list_dshow_video_devices():
                 devices.append(name)
     return devices
 
+
+# ----------------------------
+# Camera Popout Window
+# ----------------------------
+
+class CameraPopoutWindow:
+    """Separate window for camera display with fullscreen support"""
+
+    def __init__(self, app, on_close_callback):
+        self.app = app
+        self.on_close_callback = on_close_callback
+        self.is_fullscreen = False
+
+        # Create toplevel window
+        self.window = tk.Toplevel(app.root)
+        self.window.title("Camera View")
+        self.window.geometry("800x600")
+
+        # Create video label
+        self.video_label = ttk.Label(self.window, anchor="nw")
+        self.video_label.pack(fill=tk.BOTH, expand=True)
+
+        # Bind events
+        self.video_label.bind("<Motion>", self._on_video_mouse_move)
+        self.video_label.bind("<Leave>", self._on_video_mouse_leave)
+        self.video_label.bind("<Button-1>", self._on_video_click_copy)
+        self.video_label.bind("<Shift-Button-1>", self._on_video_click_copy_json)
+        self.video_label.bind("<Double-Button-1>", self._toggle_fullscreen)
+
+        # Bind ESC key to exit fullscreen
+        self.window.bind("<Escape>", self._exit_fullscreen)
+
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+
+        # Coordinate display
+        self.coord_var = tk.StringVar(value="x: -, y: -")
+        coord_bar = ttk.Frame(self.window)
+        coord_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
+        ttk.Label(coord_bar, textvariable=self.coord_var).pack(side=tk.LEFT, padx=6)
+
+        # Track display size for coordinate mapping
+        self._disp_img_w = 0
+        self._disp_img_h = 0
+        self._last_video_xy = None
+
+    def _toggle_fullscreen(self, event=None):
+        """Toggle between windowed and fullscreen mode"""
+        if self.is_fullscreen:
+            self._exit_fullscreen()
+        else:
+            self._enter_fullscreen()
+
+    def _enter_fullscreen(self, event=None):
+        """Enter fullscreen mode"""
+        self.is_fullscreen = True
+        self.window.attributes("-fullscreen", True)
+        self.app.set_status("Camera fullscreen (press ESC to exit)")
+
+    def _exit_fullscreen(self, event=None):
+        """Exit fullscreen mode"""
+        if self.is_fullscreen:
+            self.is_fullscreen = False
+            self.window.attributes("-fullscreen", False)
+            self.app.set_status("Camera windowed")
+
+    def _on_window_close(self):
+        """Handle window close - return to embedded mode"""
+        self._exit_fullscreen()
+        self.on_close_callback()
+
+    def update_frame(self, tk_img):
+        """Update the video display with a new frame"""
+        if tk_img:
+            self._disp_img_w = tk_img.width()
+            self._disp_img_h = tk_img.height()
+            self.video_label.imgtk = tk_img
+            self.video_label.configure(image=tk_img)
+
+    def _event_to_frame_xy(self, event):
+        """Convert mouse event to frame coordinates"""
+        with self.app.frame_lock:
+            frame = self.app.latest_frame_bgr
+            if frame is None:
+                return None
+            fh, fw, _ = frame.shape
+
+        iw = self._disp_img_w or fw
+        ih = self._disp_img_h or fh
+
+        off_x, off_y = 0, 0
+        x_img = int(event.x) - off_x
+        y_img = int(event.y) - off_y
+
+        if not (0 <= x_img < iw and 0 <= y_img < ih):
+            return None
+
+        x = int(x_img * fw / iw)
+        y = int(y_img * fh / ih)
+
+        if 0 <= x < fw and 0 <= y < fh:
+            return (x, y)
+        return None
+
+    def _on_video_mouse_move(self, event):
+        """Handle mouse movement over video"""
+        xy = self._event_to_frame_xy(event)
+        if xy is None:
+            self._last_video_xy = None
+            self.coord_var.set("x: -, y: -")
+            return
+        x, y = xy
+        self._last_video_xy = (x, y)
+        self.coord_var.set(f"x: {x}, y: {y}")
+
+    def _on_video_mouse_leave(self, event):
+        """Handle mouse leaving video area"""
+        self._last_video_xy = None
+        self.coord_var.set("x: -, y: -")
+
+    def _on_video_click_copy(self, event):
+        """Copy coordinates on click"""
+        xy = self._event_to_frame_xy(event) or self._last_video_xy
+        if xy is None:
+            self.app.set_status("No coords to copy.")
+            return
+        x, y = xy
+        s = f"{x},{y}"
+        self.app._copy_to_clipboard(s)
+        self.app.set_status(f"Copied coords: {s}")
+
+    def _on_video_click_copy_json(self, event):
+        """Copy coordinates as JSON on Shift+click"""
+        xy = self._event_to_frame_xy(event) or self._last_video_xy
+        if xy is None:
+            self.app.set_status("No coords to copy.")
+            return
+        x, y = xy
+        s = json.dumps({"x": x, "y": y})
+        self.app._copy_to_clipboard(s)
+        self.app.set_status(f"Copied coords JSON: {s}")
+
+    def close(self):
+        """Close the window"""
+        try:
+            self.window.destroy()
+        except:
+            pass
+
 def safe_script_filename(name: str) -> str:
     name = name.strip()
     name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", name)  # Windows-illegal chars
@@ -524,6 +673,7 @@ class App:
         self.camera_panel_hidden = True
         self._saved_sash_x = None
         self.base_video_width = 640  # adjust if you want
+        self.popout_window = None  # Camera popout window
 
         # audio state
         self.audio_input_var = tk.StringVar()
@@ -742,6 +892,7 @@ class App:
         self.video_label.bind("<Leave>", self._on_video_mouse_leave)
         self.video_label.bind("<Button-1>", self._on_video_click_copy)
         self.video_label.bind("<Shift-Button-1>", self._on_video_click_copy_json)
+        self.video_label.bind("<Double-Button-1>", self._on_video_double_click)
 
 
         # Coordinate readout
@@ -774,8 +925,6 @@ class App:
         # Initially hide audio controls (camera panel starts hidden)
         self.audio_input_frame.grid_remove()
         self.audio_output_frame.grid_remove()
-
-        self.video_label.grid(row=0, column=0, sticky="nsew")
 
         # Right: script viewer + vars
         right = ttk.Frame(main)
@@ -1160,6 +1309,33 @@ class App:
         self._last_video_xy = (x, y)
         self.video_mouse_xy_var.set(f"x: {x}, y: {y}")
 
+    def _on_video_double_click(self, event):
+        """Double-click to pop out camera window"""
+        # Only pop out if camera is running
+        if not self.cam_running:
+            return
+        self.popout_camera()
+
+    def popout_camera(self):
+        """Pop out the camera to a separate window"""
+        if self.popout_window is not None:
+            return  # Already popped out
+
+        # Create popout window
+        self.popout_window = CameraPopoutWindow(self, self._on_popout_close)
+        self.set_status("Camera popped out (double-click for fullscreen)")
+
+        # Hide main video display (keep label but clear image)
+        self.video_label.configure(image="")
+        self.video_label.imgtk = None
+
+    def _on_popout_close(self):
+        """Handle popout window closing - return to embedded mode"""
+        if self.popout_window is not None:
+            self.popout_window.close()
+            self.popout_window = None
+            self.set_status("Camera returned to main window")
+
 
 
     # ---- camera
@@ -1221,6 +1397,12 @@ class App:
         self.cam_proc = None
         with self.frame_lock:
             self.latest_frame_bgr = None
+
+        # Close popout window if open
+        if self.popout_window is not None:
+            self.popout_window.close()
+            self.popout_window = None
+
         self.set_status("Camera stopped.")
         # Auto-hide if camera stopped
         self.hide_camera_panel()
@@ -1340,12 +1522,24 @@ class App:
             return
         frame_size = self.cam_width * self.cam_height * 3
         while self.cam_running and self.cam_proc and self.cam_proc.stdout:
-            raw = self.cam_proc.stdout.read(frame_size)
-            if not raw or len(raw) != frame_size:
-                continue
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.cam_height, self.cam_width, 3))
-            with self.frame_lock:
-                self.latest_frame_bgr = frame
+            try:
+                raw = self.cam_proc.stdout.read(frame_size)
+                if not raw:
+                    # Process ended or pipe closed
+                    break
+                if len(raw) != frame_size:
+                    # Incomplete frame, skip it
+                    continue
+                frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.cam_height, self.cam_width, 3))
+                with self.frame_lock:
+                    self.latest_frame_bgr = frame
+            except Exception:
+                # Handle any read errors (broken pipe, etc.)
+                break
+
+        # If we exited due to error, ensure camera state is updated
+        if self.cam_running:
+            self.root.after(0, lambda: self.set_status("Camera disconnected unexpectedly"))
 
     def _schedule_frame_update(self):
         self._update_video_frame()
@@ -1359,10 +1553,17 @@ class App:
         rgb = frame[:, :, ::-1]
         img = Image.fromarray(rgb)
         tk_img = ImageTk.PhotoImage(img)
-        self._disp_img_w = tk_img.width()
-        self._disp_img_h = tk_img.height()
-        self.video_label.imgtk = tk_img
-        self.video_label.configure(image=tk_img)
+
+        # Route to popout window if active, otherwise to main window
+        if self.popout_window is not None:
+            # Update popout window
+            self.popout_window.update_frame(tk_img)
+        else:
+            # Update main window
+            self._disp_img_w = tk_img.width()
+            self._disp_img_h = tk_img.height()
+            self.video_label.imgtk = tk_img
+            self.video_label.configure(image=tk_img)
 
     # ---- audio
     def refresh_audio_devices(self):
