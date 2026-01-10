@@ -1522,12 +1522,24 @@ class App:
             return
         frame_size = self.cam_width * self.cam_height * 3
         while self.cam_running and self.cam_proc and self.cam_proc.stdout:
-            raw = self.cam_proc.stdout.read(frame_size)
-            if not raw or len(raw) != frame_size:
-                continue
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.cam_height, self.cam_width, 3))
-            with self.frame_lock:
-                self.latest_frame_bgr = frame
+            try:
+                raw = self.cam_proc.stdout.read(frame_size)
+                if not raw:
+                    # Process ended or pipe closed
+                    break
+                if len(raw) != frame_size:
+                    # Incomplete frame, skip it
+                    continue
+                frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.cam_height, self.cam_width, 3))
+                with self.frame_lock:
+                    self.latest_frame_bgr = frame
+            except Exception:
+                # Handle any read errors (broken pipe, etc.)
+                break
+
+        # If we exited due to error, ensure camera state is updated
+        if self.cam_running:
+            self.root.after(0, lambda: self.set_status("Camera disconnected unexpectedly"))
 
     def _schedule_frame_update(self):
         self._update_video_frame()
