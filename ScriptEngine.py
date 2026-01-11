@@ -11,7 +11,6 @@ import ast
 import math
 import re
 from tkinter import messagebox
-import cv2
 
 # Optional OCR support via pytesseract
 try:
@@ -19,6 +18,13 @@ try:
     PYTESSERACT_AVAILABLE = True
 except ImportError:
     PYTESSERACT_AVAILABLE = False
+
+# Optional OpenCV support for advanced image processing
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 # ----------------------------
 # Pokemon Name Typer Keyboard Layouts
@@ -285,7 +291,19 @@ def frame_to_json_payload(frame_bgr: np.ndarray):
 # OCR / Text Recognition Helpers
 # ----------------------------
 
-def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, invert: bool = False) -> Image.Image:
+def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, invert: bool = False):
+    """
+    Preprocess an image region for better OCR on pixel fonts.
+
+    Args:
+        img: PIL Image (RGB or RGBA)
+        scale: Upscale factor (higher = better for small pixel fonts, default 4)
+        threshold: Binary threshold 0-255 (0 = use automatic OTSU thresholding)
+        invert: If True, invert colors (useful for light text on dark background)
+
+    Returns:
+        Tuple of (primary_image, fallback_image) - both preprocessed for OCR
+    """
     # Convert to RGB if needed
     if img.mode != 'RGB':
         img = img.convert('RGB')
@@ -298,23 +316,36 @@ def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, inv
     if invert:
         img = ImageOps.invert(img)
 
-    image = img
+    # Convert to grayscale for processing
+    grayscale = np.array(img.convert('L'))
 
-    opencv_image = np.array(image.convert('L'))
-    
-    # Apply Gaussian blur
-    blurred_image = cv2.GaussianBlur(opencv_image, (5, 5), 0)
-    
-    # Apply binary thresholding
-    _, binary_thresh = cv2.threshold(blurred_image, 128, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Convert back to PIL Image
-    binary_thresh_pil = Image.fromarray(binary_thresh)
+    # Use OpenCV if available for better preprocessing
+    if CV2_AVAILABLE:
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(grayscale, (5, 5), 0)
 
-    img1 = ImageEnhance.Contrast(ImageEnhance.Brightness(binary_thresh_pil).enhance(2)).enhance(2)
-    img2 = binary_thresh_pil.filter(ImageFilter.BLUR),
+        # Apply binary thresholding (OTSU for automatic threshold selection)
+        if threshold > 0:
+            _, binary = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)
+        else:
+            _, binary = cv2.threshold(blurred, 128, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    return img1,img2
+        # Convert back to PIL Image
+        binary_pil = Image.fromarray(binary)
+    else:
+        # Fallback without OpenCV - simple thresholding
+        binary_pil = img.convert('L')
+        if threshold > 0:
+            binary_pil = binary_pil.point(lambda x: 255 if x > threshold else 0)
+
+    # Create enhanced version (primary) with increased contrast and brightness
+    img_enhanced = ImageEnhance.Brightness(binary_pil).enhance(2)
+    img_enhanced = ImageEnhance.Contrast(img_enhanced).enhance(2)
+
+    # Create blurred fallback version for difficult cases
+    img_fallback = binary_pil.filter(ImageFilter.BLUR)
+
+    return img_enhanced, img_fallback
 
 
 def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
@@ -328,13 +359,13 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
         x, y: Top-left corner of region
         width, height: Size of region
         scale: Upscale factor for preprocessing
-        threshold: Binary threshold (0 = disabled)
+        threshold: Binary threshold (0 = use automatic OTSU)
         invert: Invert colors for light-on-dark text
         psm: Tesseract Page Segmentation Mode (7 = single line, 6 = single block)
         whitelist: Characters to restrict OCR to (e.g., "0123456789" for numbers only)
 
     Returns:
-        Recognized text string (stripped)
+        Recognized text string (stripped), or numeric string if whitelist is digits only
     """
     if not PYTESSERACT_AVAILABLE:
         raise RuntimeError("pytesseract is not installed. Install with: pip install pytesseract")
@@ -357,43 +388,54 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
     region_rgb = region_bgr[:, :, ::-1]
     img = Image.fromarray(region_rgb)
 
-    # Preprocess for OCR
-    img, img2 = preprocess_for_ocr(img, scale=scale, threshold=threshold, invert=invert)
+    # Preprocess for OCR (returns primary and fallback images)
+    img_primary, img_fallback = preprocess_for_ocr(
+        img, scale=scale, threshold=threshold, invert=invert
+    )
+
+    # Check if we're in numeric-only mode
+    numeric_mode = (whitelist == "0123456789")
 
     # Build tesseract config
     config_parts = [f"--psm {psm}"]
-    numeric = False
-    if whitelist == "0123456789":
-        numeric = True
     if whitelist:
-        if numeric:
-            config_parts.append(f"-c tessedit_char_whitelist=0123456789BSZOI")
+        if numeric_mode:
+            # Include commonly confused characters for better recognition
+            config_parts.append("-c tessedit_char_whitelist=0123456789BSZOI")
         else:
             config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
 
     config = " ".join(config_parts)
 
+    def fix_numeric_confusions(text: str) -> str:
+        """Fix common OCR confusions for numeric text."""
+        return (text
+                .replace('O', '0')
+                .replace('I', '1')
+                .replace('S', '5')
+                .replace('Z', '2')
+                .replace('B', '8'))
+
     # Run OCR
     try:
-        text = pytesseract.image_to_string(img, config=config).strip()
-        if numeric:
-            text = text.replace('O','0')
-            text = text.replace('I','1')
-            text = text.replace('S','5')
-            text = text.replace('Z','2')
-            text = text.replace('B','8')
-            result = int(text) if text.isdigit() else -1
-            if result == -1:
-                text = pytesseract.image_to_string(img2, config=config).strip()
-                text = text.replace('O','0')
-                text = text.replace('I','1')
-                text = text.replace('S','5')
-                text = text.replace('Z','2')
-                text = text.replace('B','8')
-                result = int(text) if text.isdigit() else -1
-        else:
-            result = text
-        return result
+        text = pytesseract.image_to_string(img_primary, config=config).strip()
+
+        if numeric_mode:
+            text = fix_numeric_confusions(text)
+
+            # If result isn't valid digits, try fallback image
+            if not text.isdigit():
+                fallback_text = pytesseract.image_to_string(
+                    img_fallback, config=config
+                ).strip()
+                fallback_text = fix_numeric_confusions(fallback_text)
+
+                # Use fallback if it's valid digits
+                if fallback_text.isdigit():
+                    text = fallback_text
+
+        return text
+
     except Exception as e:
         raise RuntimeError(f"OCR failed: {e}")
 
