@@ -131,9 +131,10 @@ class CameraPopoutWindow:
         self.window = tk.Toplevel(app.root)
         self.window.title("Camera View")
         self.window.geometry("800x600")
+        self.window.configure(bg="black")
 
-        # Create video label
-        self.video_label = ttk.Label(self.window, anchor="nw")
+        # Create video label with black background, centered
+        self.video_label = tk.Label(self.window, anchor="center", bg="black")
         self.video_label.pack(fill=tk.BOTH, expand=True)
 
         # Bind events
@@ -155,9 +156,11 @@ class CameraPopoutWindow:
         coord_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
         ttk.Label(coord_bar, textvariable=self.coord_var).pack(side=tk.LEFT, padx=6)
 
-        # Track display size for coordinate mapping
+        # Track display size and offset for coordinate mapping
         self._disp_img_w = 0
         self._disp_img_h = 0
+        self._video_offset_x = 0  # Offset of video within the display area
+        self._video_offset_y = 0
         self._last_video_xy = None
 
     def _toggle_fullscreen(self, event=None):
@@ -186,7 +189,7 @@ class CameraPopoutWindow:
         self.on_close_callback()
 
     def update_frame(self, pil_img):
-        """Update the video display with a new frame, scaling to fit window"""
+        """Update the video display with a new frame, scaling to fit window and centering"""
         if pil_img is None:
             return
 
@@ -206,6 +209,11 @@ class CameraPopoutWindow:
         else:
             scaled_img = pil_img
 
+        # Calculate offset for centering (used for coordinate mapping)
+        scaled_w, scaled_h = scaled_img.size
+        self._video_offset_x = (available_w - scaled_w) // 2
+        self._video_offset_y = (available_h - scaled_h) // 2
+
         # Convert to PhotoImage and display
         tk_img = ImageTk.PhotoImage(scaled_img)
         self._disp_img_w = tk_img.width()
@@ -224,7 +232,9 @@ class CameraPopoutWindow:
         iw = self._disp_img_w or fw
         ih = self._disp_img_h or fh
 
-        off_x, off_y = 0, 0
+        # Account for centering offset
+        off_x = self._video_offset_x
+        off_y = self._video_offset_y
         x_img = int(event.x) - off_x
         y_img = int(event.y) - off_y
 
