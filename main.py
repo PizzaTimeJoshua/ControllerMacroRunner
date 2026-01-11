@@ -389,7 +389,7 @@ class App:
             script_box,
             wrap="none",
             height=12,
-            font=("Courier", 9),
+            font=("Consolas", 9),
             state="disabled",  # Read-only by default
             cursor="arrow"
         )

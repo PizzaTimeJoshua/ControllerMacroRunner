@@ -857,7 +857,7 @@ class ScriptEngine:
             duration = c.get("duration_ms", 1000)
             hold = c.get("hold_ms", 25)
             wait = c.get("wait_ms", 25)
-            return f"Mash {', '.join(btns) if btns else '(none)'} for {duration}ms (hold:{hold}ms wait:{wait}ms)"
+            return f"Mash {', '.join(btns) if btns else '(none)'} for {duration} ms (hold:{hold} ms wait:{wait} ms)"
 
         def fmt_type_name(c):
             name = c.get("name", "Red")
