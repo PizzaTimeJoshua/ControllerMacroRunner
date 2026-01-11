@@ -86,6 +86,35 @@ def list_dshow_video_devices():
     return devices
 
 
+def scale_image_to_fit(img: Image.Image, max_width: int, max_height: int) -> Image.Image:
+    """
+    Scale an image to fit within max_width x max_height while preserving aspect ratio.
+    Returns the scaled image.
+    """
+    if max_width <= 0 or max_height <= 0:
+        return img
+
+    orig_w, orig_h = img.size
+    if orig_w <= 0 or orig_h <= 0:
+        return img
+
+    # Calculate scale factor to fit within bounds
+    scale_w = max_width / orig_w
+    scale_h = max_height / orig_h
+    scale = min(scale_w, scale_h)
+
+    # Don't upscale beyond 1.0 for main window, but allow for popout/fullscreen
+    # Actually, we want to allow scaling up for fullscreen, so no cap here
+
+    new_w = max(1, int(orig_w * scale))
+    new_h = max(1, int(orig_h * scale))
+
+    if new_w == orig_w and new_h == orig_h:
+        return img
+
+    return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+
 # ----------------------------
 # Camera Popout Window
 # ----------------------------
@@ -102,9 +131,10 @@ class CameraPopoutWindow:
         self.window = tk.Toplevel(app.root)
         self.window.title("Camera View")
         self.window.geometry("800x600")
+        self.window.configure(bg="black")
 
-        # Create video label
-        self.video_label = ttk.Label(self.window, anchor="nw")
+        # Create video label with black background, centered
+        self.video_label = tk.Label(self.window, anchor="center", bg="black")
         self.video_label.pack(fill=tk.BOTH, expand=True)
 
         # Bind events
@@ -126,9 +156,11 @@ class CameraPopoutWindow:
         coord_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
         ttk.Label(coord_bar, textvariable=self.coord_var).pack(side=tk.LEFT, padx=6)
 
-        # Track display size for coordinate mapping
+        # Track display size and offset for coordinate mapping
         self._disp_img_w = 0
         self._disp_img_h = 0
+        self._video_offset_x = 0  # Offset of video within the display area
+        self._video_offset_y = 0
         self._last_video_xy = None
 
     def _toggle_fullscreen(self, event=None):
@@ -156,13 +188,38 @@ class CameraPopoutWindow:
         self._exit_fullscreen()
         self.on_close_callback()
 
-    def update_frame(self, tk_img):
-        """Update the video display with a new frame"""
-        if tk_img:
-            self._disp_img_w = tk_img.width()
-            self._disp_img_h = tk_img.height()
-            self.video_label.imgtk = tk_img
-            self.video_label.configure(image=tk_img)
+    def update_frame(self, pil_img):
+        """Update the video display with a new frame, scaling to fit window and centering"""
+        if pil_img is None:
+            return
+
+        # Get available size for the video (window size minus coord bar)
+        self.window.update_idletasks()
+        available_w = self.video_label.winfo_width()
+        available_h = self.video_label.winfo_height()
+
+        # Fallback to window size if label size not yet available
+        if available_w <= 1 or available_h <= 1:
+            available_w = self.window.winfo_width()
+            available_h = self.window.winfo_height() - 30  # Approximate coord bar height
+
+        # Scale image to fit while maintaining aspect ratio
+        if available_w > 1 and available_h > 1:
+            scaled_img = scale_image_to_fit(pil_img, available_w, available_h)
+        else:
+            scaled_img = pil_img
+
+        # Calculate offset for centering (used for coordinate mapping)
+        scaled_w, scaled_h = scaled_img.size
+        self._video_offset_x = (available_w - scaled_w) // 2
+        self._video_offset_y = (available_h - scaled_h) // 2
+
+        # Convert to PhotoImage and display
+        tk_img = ImageTk.PhotoImage(scaled_img)
+        self._disp_img_w = tk_img.width()
+        self._disp_img_h = tk_img.height()
+        self.video_label.imgtk = tk_img
+        self.video_label.configure(image=tk_img)
 
     def _event_to_frame_xy(self, event):
         """Convert mouse event to frame coordinates"""
@@ -175,7 +232,9 @@ class CameraPopoutWindow:
         iw = self._disp_img_w or fw
         ih = self._disp_img_h or fh
 
-        off_x, off_y = 0, 0
+        # Account for centering offset
+        off_x = self._video_offset_x
+        off_y = self._video_offset_y
         x_img = int(event.x) - off_x
         y_img = int(event.y) - off_y
 
@@ -1449,10 +1508,25 @@ class App:
         try:
             self.main_pane.update_idletasks()
             total = self.main_pane.winfo_width()
+            pane_h = self.main_pane.winfo_height()
+
+            # Calculate minimum width needed to show camera at reasonable size
+            # Account for coord bar and audio controls (~80px overhead)
+            available_h = max(100, pane_h - 80)
+
+            # Calculate ideal width based on camera aspect ratio
+            cam_aspect = self.cam_width / self.cam_height if self.cam_height > 0 else 1.5
+            ideal_cam_width = int(available_h * cam_aspect)
+
+            # Use saved position if available and reasonable, otherwise calculate based on camera
             x = self._saved_sash_x
             if x is None or x < 150:
-                x = int(total * 0.45)  # default restore
-            x = max(220, min(x, total - 220))  # keep both panes usable
+                # Default: use ideal camera width, but cap at 50% of total width
+                x = min(ideal_cam_width, int(total * 0.5))
+
+            # Ensure camera pane gets at least minimum viable space
+            min_cam_width = min(300, int(total * 0.3))
+            x = max(min_cam_width, min(x, total - 220))  # Keep right pane usable too
 
             if hasattr(self.main_pane, "sashpos"):
                 self.main_pane.sashpos(0, x)
@@ -1552,14 +1626,39 @@ class App:
             return
         rgb = frame[:, :, ::-1]
         img = Image.fromarray(rgb)
-        tk_img = ImageTk.PhotoImage(img)
 
         # Route to popout window if active, otherwise to main window
         if self.popout_window is not None:
-            # Update popout window
-            self.popout_window.update_frame(tk_img)
+            # Update popout window with PIL image (it does its own scaling)
+            self.popout_window.update_frame(img)
         else:
-            # Update main window
+            # Update main window - scale to fit available space
+            self.video_label.update_idletasks()
+            available_w = self.video_label.winfo_width()
+            available_h = self.video_label.winfo_height()
+
+            # Fallback: if label not yet sized, try to get size from main pane
+            if available_w <= 1 or available_h <= 1:
+                try:
+                    self.main_pane.update_idletasks()
+                    # Get sash position to determine left pane width
+                    if hasattr(self.main_pane, "sashpos"):
+                        available_w = self.main_pane.sashpos(0)
+                    else:
+                        available_w = self.cam_width  # Use camera dimensions as fallback
+                    # Estimate available height from main pane height minus controls
+                    pane_h = self.main_pane.winfo_height()
+                    available_h = max(100, pane_h - 80)  # Reserve space for coord bar and audio controls
+                except Exception:
+                    pass
+
+            # Scale if we have valid dimensions, otherwise show at native size
+            if available_w > 1 and available_h > 1:
+                scaled_img = scale_image_to_fit(img, available_w, available_h)
+            else:
+                scaled_img = img
+
+            tk_img = ImageTk.PhotoImage(scaled_img)
             self._disp_img_w = tk_img.width()
             self._disp_img_h = tk_img.height()
             self.video_label.imgtk = tk_img
