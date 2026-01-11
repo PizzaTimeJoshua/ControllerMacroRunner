@@ -1,351 +1,454 @@
 # Controller Macro Runner
 
-A Windows desktop application for **high-precision gaming automation** with sub-millisecond accuracy.
-
-#### Key Capabilities:
-
-- **High-precision timing system** - Sub-millisecond accuracy for frame-perfect inputs
-- **Immediate serial transmission** - No delay for rapid button sequences (200+ presses/sec)
-- **Visual scripting** - JSON-based macro scripts with variables, loops, and conditionals
-- **Camera integration** - DirectShow camera feed with pixel sampling for vision-based automation
-- **Extensible** - Custom Python tools and command system
-- **Multiple backends** - USB serial transmitter or 3DS Input Redirection
+A Windows desktop application for **high-precision gaming automation** with sub-millisecond timing accuracy. Automate controller inputs for game consoles through macro scripting with support for vision-based automation.
 
 ---
 
-## Performance & Capabilities
+## Table of Contents
 
-### Timing Precision
-- **Sub-millisecond accuracy** - Supports fractional milliseconds (e.g., 3.5ms)
-- **1ms minimum** - Button presses as short as 1 millisecond
-- **Zero drift** - Maintains accuracy even in long sequences
-- **200+ presses/second** - Ultra-fast mashing without missing inputs
-
-### Serial Communication
-- **Immediate transmission** - Button changes sent instantly (no 50ms delay)
-- **1,000,000 baud** - High-speed USB serial communication
-- **Frame-perfect combos** - Accurate for competitive gaming and TAS
-- **Keep-alive backup** - Prevents receiver timeout with periodic updates
-
-### Script Capabilities
-- **15 built-in commands** - Press, mash, hold, wait, variables, control flow, image processing
-- **Variables & expressions** - Math operations, conditionals, loops
-- **Camera vision** - Pixel sampling and color detection
-- **Python extensions** - Run custom Python scripts with full variable support
-- **Export to Python** - Convert scripts to standalone Python programs
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [User Interface](#user-interface)
+- [Script Commands Reference](#script-commands-reference)
+- [Custom Python Scripts](#custom-python-scripts)
+- [Export to Standalone Python](#export-to-standalone-python)
+- [Keyboard Control Mode](#keyboard-control-mode)
+- [Troubleshooting](#troubleshooting)
+- [Advanced Topics](#advanced-topics)
+- [Safety Notes](#safety-notes)
 
 ---
 
 ## Features
 
-- Camera Preview
-  - Lists cameras using FFmpeg DirectShow device enumeration
+### Core Capabilities
 
-  - Streams video using FFmpeg rawvideo piping
+- **High-Precision Timing** - Sub-millisecond accuracy for frame-perfect inputs
+- **Immediate Serial Transmission** - No delay for rapid button sequences (200+ presses/sec)
+- **Visual Scripting** - JSON-based macro scripts with variables, loops, and conditionals
+- **Camera Integration** - DirectShow camera feed with pixel sampling for vision-based automation
+- **Multiple Output Backends** - USB serial transmitter or Nintendo 3DS Input Redirection
+- **Extensible** - Custom Python tools and command system
 
-  - Mouse hover shows pixel coordinates (x,y)
+### Camera Features
 
-  - Click-to-copy coordinates for use in scripts
+- Live video preview from DirectShow cameras via FFmpeg
+- Mouse hover shows pixel coordinates (x,y)
+- Click to copy coordinates to clipboard
+- Shift+Click copies coordinates in JSON format: `{"x":123,"y":45}`
+- Double-click to pop out camera to a separate window
+- Configurable aspect ratios (GBA, DS, 3DS, Standard)
+- Region selector for OCR areas
+- Color picker for find_color command
 
-- Audio Streaming (Optional)
-  - Lists available audio input and output devices
+### Audio Features (Optional)
 
-  - Real-time audio passthrough from input to output
+- Real-time audio passthrough from input to output device
+- Requires PyAudio library (optional dependency)
+- Useful for monitoring game audio while automating
 
-  - Positioned below video output, hidden when camera panel is hidden
+### Script Engine
 
-  - Requires PyAudio library (optional dependency)
+- **17 Built-in Commands** - Controller, timing, variables, control flow, and image processing
+- **Variables & Expressions** - Math operations with `$variable` references
+- **Control Flow** - Labels, goto, if/end_if, while/end_while
+- **Vision Commands** - Pixel color detection (find_color) and OCR (read_text)
+- **Python Extensions** - Run custom Python scripts with full variable support
+- **Export to Python** - Convert scripts to standalone Python programs
 
-- Controller / Serial
-  - Uses a [USB Wireless TX (Transmitter) by insideGadgets](https://shop.insidegadgets.com/product/usb-wireless-tx-transmitter/)
+---
 
-  - Connect to a COM port at 1,000,000 baud
+## Requirements
 
-  - **Immediate packet transmission** - no delay for button changes
+### System Requirements
 
-  - Sends keep-alive packets at ~20 Hz (50 ms) as backup
+- **Operating System**: Windows 10/11 (required for DirectShow camera capture)
+- **Python**: 3.10 or higher recommended
 
-  - Pairing warm-up (neutral packets) on connect
+### Hardware (for controller output)
 
-  - Supports changing channels
+Choose one of the following output methods:
 
-  - Supports rapid button sequences and ultra-fast mashing
+1. **USB Wireless TX Transmitter** by insideGadgets
+   - Purchase: [insideGadgets Shop](https://shop.insidegadgets.com/product/usb-wireless-tx-transmitter/)
+   - Connects via USB COM port at 1,000,000 baud
+   - Works with: NES Classic, SNES Classic, GBA, and other compatible receivers
 
-- Script Editor
+2. **Nintendo 3DS with Input Redirection**
+   - Requires: 3DS with custom firmware and InputRedirectionNTR or similar
+   - Connects via UDP over WiFi
+   - Supports touchscreen input
 
-  - Load/save JSON scripts in `./scripts`
+---
 
-  - Insert commands from a grouped “Insert Command” panel
+## Installation
 
-  - Context menu, multi-select capable list behavior (TreeView selection)
+### Step 1: Install Python
 
-  - Double-click to edit commands
+Download and install Python 3.10 or higher from [python.org](https://www.python.org/downloads/).
 
-  - Indented view for nested if/while
+During installation, make sure to check **"Add Python to PATH"**.
 
-- Script Engine
+### Step 2: Install Required Dependencies
 
-  - Variables (`set`, `add`)
+Open a command prompt and run:
 
-  - Control flow: `label`, `goto`, `if/end_if`, `while/end_while`
-
-  - Image: `find_color`
-
-  - Custom: `run_python` (calls `main(*args)` in `./py_scripts/*.py`)
-
-    - Supports variable refs in args (e.g. `"$counter"`)
-
-    - Supports passing current frame via `"$frame"` (PNG base64 payload)
-
-  - **High-precision timing system** for accurate button inputs
-
-    - Sub-millisecond accuracy using hybrid sleep approach
-
-    - Supports fractional milliseconds (e.g. 3.5ms)
-
-    - Eliminates timing drift for rapid sequences
-
-#### Folder Layout
-```
-project/
-  main.py                      # main file program
-  ScriptEngine.py
-  SerialController.py
-  ThreeDSClasses.py
-  scripts/                    # macro scripts (JSON)
-    example.json
-  py_scripts/                 # user python helpers for run_python
-    my_tool.py
-  bin/
-    ffmpeg.exe                # Can also be on PATH
-    *.dll                     # Dll files from ffmpeg
-```
-The app will create `scripts/` and `py_scripts/` if missing.
-
-#### Requirements (development)
-
-- Python 3.10+ recommended
-
-- Dependencies:
-
-  - numpy
-
-  - pillow
-
-  - pyserial
-
-  - pyaudio (optional, for audio streaming)
-
-Install:
 ```bat
-py -m pip install numpy pillow pyserial pyaudio
+py -m pip install numpy pillow pyserial
 ```
 
-Note: PyAudio is optional. If not installed, the audio feature will be disabled but the application will still function normally.
+**Required packages:**
+| Package | Purpose | Link |
+|---------|---------|------|
+| numpy | Image array processing | [PyPI](https://pypi.org/project/numpy/) |
+| pillow | Image handling | [PyPI](https://pypi.org/project/Pillow/) |
+| pyserial | Serial communication | [PyPI](https://pypi.org/project/pyserial/) |
 
+### Step 3: Install Optional Dependencies
 
-FFmpeg:
+```bat
+py -m pip install pyaudio pytesseract opencv-python
+```
 
-- Recommended: place `ffmpeg.exe` and `*.dll` files in the folder `bin/` (or ensure ffmpeg is on PATH)
+**Optional packages:**
+| Package | Purpose | Link |
+|---------|---------|------|
+| pyaudio | Audio streaming/passthrough | [PyPI](https://pypi.org/project/PyAudio/) |
+| pytesseract | OCR text recognition | [PyPI](https://pypi.org/project/pytesseract/) |
+| opencv-python | Advanced image processing for OCR | [PyPI](https://pypi.org/project/opencv-python/) |
 
-#### Running
+**Note for PyAudio on Windows:** If pip install fails, download the appropriate wheel from [Unofficial Windows Binaries](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio).
+
+**Note for pytesseract:** You also need to install Tesseract OCR:
+- Windows: Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
+- Add Tesseract to your PATH or set `pytesseract.pytesseract.tesseract_cmd`
+
+### Step 4: Install FFmpeg
+
+FFmpeg is required for camera capture.
+
+**Option A: Bundled (Recommended)**
+1. Download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html) or [gyan.dev builds](https://www.gyan.dev/ffmpeg/builds/)
+2. Extract `ffmpeg.exe` and all `*.dll` files to the `bin/` folder in your project directory
+
+**Option B: System PATH**
+1. Download and extract FFmpeg
+2. Add the `bin` folder to your system PATH
+3. Verify with: `ffmpeg -version`
+
+### Step 5: Download the Application
+
+Clone or download this repository:
+
+```bat
+git clone https://github.com/yourusername/ControllerMacroRunner.git
+cd ControllerMacroRunner
+```
+
+### Folder Structure
+
+```
+ControllerMacroRunner/
+  main.py                 # Main application
+  ScriptEngine.py         # Script execution engine
+  SerialController.py     # USB serial communication
+  ThreeDSClasses.py       # 3DS Input Redirection backend
+  ScriptToPy.py           # Script to Python exporter
+  scripts/                # Macro scripts (JSON) - auto-created
+  py_scripts/             # Custom Python helpers - auto-created
+  bin/
+    ffmpeg.exe            # FFmpeg binary
+    *.dll                 # FFmpeg dependencies
+```
+
+---
+
+## Quick Start
+
+### Running the Application
+
 ```bat
 py main.py
 ```
 
+### Basic Workflow
 
-1. Select a Camera and click Start Cam
+1. **Select a Camera** - Choose from the dropdown and click **Start Cam**
+2. **Connect Controller** - Select COM port and click **Connect** (for USB Serial) or configure 3DS IP
+3. **Load or Create Script** - Use the Script dropdown or click **New**
+4. **Run the Script** - Click **Run** to execute, **Stop** to halt
 
-2. Select COM port and click Connect
+### Your First Script
 
-3. Load a script from the Script dropdown or click New
+1. Click **New** and name your script (e.g., "test")
+2. Click **Add** to insert commands
+3. Select "press" from the command type dropdown
+4. Choose button "A" and set duration to 100ms
+5. Click **OK** to add the command
+6. Click **Save** then **Run**
 
-4. Run with Run, stop with Stop
+---
 
-#### Camera Coordinate Helper
+## User Interface
 
-- Hover your mouse over the video to display x,y
+### Top Bar Controls
 
-- Click the video to copy `x,y` to the clipboard
+| Control | Description |
+|---------|-------------|
+| **Camera** | Select and start/stop camera feed |
+| **Cam Ratio** | Adjust aspect ratio (GBA, DS, 3DS, etc.) |
+| **Show/Hide Cam** | Toggle camera panel visibility |
+| **COM** | Select serial port for USB transmitter |
+| **Connect** | Connect/disconnect serial device |
+| **Channel** | Set wireless channel (1-16) |
+| **Output** | Choose backend: USB Serial or 3DS Input Redirection |
+| **Script** | Load, save, and manage scripts |
+| **Keyboard Control** | Enable manual keyboard input |
 
-- Shift+Click copies `{"x":123,"y":45}`
+### Script Editor
 
-Coordinates are pixel coordinates in the source frame.
+- **Script Commands Panel** - Displays script with syntax highlighting
+- **Variables Panel** - Shows current variable values during execution
+- **Insert/Edit/Delete** - Modify script commands
+- **Up/Down** - Reorder commands
+- **Right-click** - Context menu with all options
 
-#### Serial Packet Format
+### Keyboard Shortcuts
 
-The app sends packets shaped like:
+- **Double-click** on video: Pop out camera window
+- **Click** on video: Copy coordinates to clipboard
+- **Shift+Click** on video: Copy coordinates as JSON
+- **Double-click** on command: Edit command
 
-- Transmit packet:
+---
 
-  - Byte0: `0x54`
+## Script Commands Reference
 
-  - Byte1: high byte (L/R/X/Y bits)
+Scripts are JSON arrays of command objects. Each command has a `cmd` field and command-specific parameters.
 
-  - Byte2: low byte (A/B/DPAD/Start/Select bits)
+### Controller Commands
 
-Buttons mapping:
+#### press
+Press buttons for a duration, then release.
 
-High byte:
-
-- L trigger = `0x01`
-
-- R trigger = `0x02`
-
-- X = `0x04`
-
-- Y = `0x08`
-
-- Low byte:
-
-- A = `0x01`
-
-- B = `0x02`
-
-- Right = `0x04`
-
-- Left = `0x08`
-
-- Up = `0x10`
-
-- Down = `0x20`
-
-- Select = `0x40`
-
-- Start = `0x80`
-
-The receiver requires continuous updates or it times out after a few seconds.
-
-#### Script Format
-
-Scripts are JSON arrays of command objects:
 ```json
-[
-  {"cmd":"comment","text":"Example: press A every second"},
-  {"cmd":"press","buttons":["A"],"ms":80},
-  {"cmd":"wait","ms":920}
-]
+{"cmd": "press", "buttons": ["A"], "ms": 80}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| buttons | list | required | Buttons to press: A, B, X, Y, Up, Down, Left, Right, Start, Select, L, R |
+| ms | number | required | Hold duration in milliseconds |
+
+#### hold
+Hold buttons indefinitely until changed by another command.
+
+```json
+{"cmd": "hold", "buttons": ["Up", "A"]}
 ```
 
-#### Controller Commands
+#### mash
+Rapidly press buttons for a duration.
 
-- **Press** - Press and release buttons:
 ```json
-{"cmd":"press","buttons":["A"],"ms":80}
+{"cmd": "mash", "buttons": ["A"], "duration_ms": 1000, "hold_ms": 25, "wait_ms": 25}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| buttons | list | required | Buttons to mash |
+| duration_ms | number | 1000 | Total mashing duration |
+| hold_ms | number | 25 | Hold time per press |
+| wait_ms | number | 25 | Wait time between presses |
+
+Press rate = 1000 / (hold_ms + wait_ms) presses/second. Default is 20 presses/sec.
+
+### Timing Commands
+
+#### wait
+Pause script execution.
+
+```json
+{"cmd": "wait", "ms": 500}
 ```
 
-- **Hold** - Hold buttons indefinitely (until another command changes them):
+### Variable Commands
+
+#### set
+Set a variable value.
+
 ```json
-{"cmd":"hold","buttons":["A","B"]}
+{"cmd": "set", "var": "counter", "value": 0}
+```
+Use `$varname` to reference variables in other commands.
+
+**Math expressions:** Prefix with `=` to evaluate expressions:
+```json
+{"cmd": "set", "var": "result", "value": "=$x + $y * 2"}
 ```
 
-- **Mash** - Rapidly mash buttons for a duration (default: ~20 presses/second):
-```json
-{"cmd":"mash","buttons":["A"],"duration_ms":1000,"hold_ms":25,"wait_ms":25}
-```
-  - `buttons`: List of buttons to mash
-  - `duration_ms`: Total time to mash in milliseconds
-  - `hold_ms`: How long to hold each press (default: 25ms)
-  - `wait_ms`: Wait time between presses (default: 25ms)
-  - Press rate = 1000 / (hold_ms + wait_ms) presses/second
+#### add
+Add a value to an existing variable.
 
-#### Variables
-
-- Set variable:
 ```json
-{"cmd":"set","var":"counter","value":0}
+{"cmd": "add", "var": "counter", "value": 1}
 ```
 
-- Add:
+#### contains
+Check if a value exists in another (like Python's `in` operator).
+
 ```json
-{"cmd":"add","var":"counter","value":1}
+{"cmd": "contains", "needle": "abc", "haystack": "abcdefgh", "out": "found"}
+```
+Works with strings (substring check) and lists (membership check).
+
+### Control Flow Commands
+
+#### label / goto
+Define jump targets and jump to them.
+
+```json
+{"cmd": "label", "name": "start"}
+{"cmd": "goto", "label": "start"}
 ```
 
-- Contains (membership test like Python's `in` operator):
+#### if / end_if
+Conditional block execution.
+
 ```json
-{"cmd":"contains","needle":"abc","haystack":"abcdefgh","out":"found"}
+{"cmd": "if", "left": "$counter", "op": "<", "right": 10}
+  {"cmd": "press", "buttons": ["A"], "ms": 50}
+{"cmd": "end_if"}
 ```
-  Works with:
-  - **Strings**: checks if needle is a substring of haystack
-  - **Lists**: checks if needle is an element in haystack
+Operators: `==`, `!=`, `<`, `<=`, `>`, `>=`
 
-  Example with variables:
+#### while / end_while
+Loop while condition is true.
+
 ```json
-{"cmd":"set","var":"my_list","value":["apple","banana","cherry"]}
-{"cmd":"contains","needle":"banana","haystack":"$my_list","out":"found"}
-```
-  Result: `$found` will be `true`
-
-To reference a variable inside a condition or args, use `$name` (string):
-
-- Example condition: `"left":"$counter"`
-
-#### Control Flow
-
-- Labels / goto:
-```json
-{"cmd":"label","name":"start"}
-{"cmd":"goto","label":"start"}
+{"cmd": "while", "left": "$counter", "op": "<", "right": 10}
+  {"cmd": "press", "buttons": ["A"], "ms": 50}
+  {"cmd": "add", "var": "counter", "value": 1}
+{"cmd": "end_while"}
 ```
 
+### Image/Vision Commands
 
-- If block:
+#### find_color
+Sample a pixel and compare against a target color using perceptual CIE76 Delta E.
+
 ```json
-{"cmd":"if","left":"$flag","op":"==","right":true}
-  {"cmd":"press","buttons":["A"],"ms":50}
-{"cmd":"end_if"}
+{"cmd": "find_color", "x": 100, "y": 200, "rgb": [255, 0, 0], "tol": 10, "out": "match"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x, y | int | required | Pixel coordinates |
+| rgb | [R,G,B] | required | Target color (0-255 each) |
+| tol | number | 10 | Delta E tolerance |
+| out | string | "match" | Variable to store boolean result |
+
+**Delta E interpretation:**
+- 0-1: Imperceptible difference
+- 1-2: Perceptible through close observation
+- 2-10: Perceptible at a glance
+- 10+: Obvious difference
+
+#### read_text
+OCR a region of the camera frame (requires pytesseract).
+
+```json
+{"cmd": "read_text", "x": 50, "y": 100, "width": 200, "height": 30, "out": "text"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x, y | int | required | Top-left corner |
+| width, height | int | required | Region size |
+| out | string | "text" | Variable to store result |
+| scale | int | 4 | Upscale factor (higher = better for small fonts) |
+| threshold | int | 0 | Binary threshold (0 = auto OTSU) |
+| invert | bool | false | Invert colors for light-on-dark text |
+| psm | int | 7 | Tesseract page segmentation mode |
+| whitelist | string | "" | Allowed characters (e.g., "0123456789") |
+
+### Custom Commands
+
+#### run_python
+Execute a Python script from `./py_scripts`.
+
+```json
+{"cmd": "run_python", "file": "my_tool.py", "args": [10, "$counter"], "out": "result"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| file | string | required | Filename in ./py_scripts or absolute path |
+| args | list | [] | Arguments passed to main(*args) |
+| out | string | "" | Variable to store return value |
+| timeout_s | int | 10 | Timeout in seconds |
+
+#### comment
+Documentation that does nothing at runtime.
+
+```json
+{"cmd": "comment", "text": "This is a comment"}
 ```
 
+### 3DS-Specific Commands
 
-- While block:
+#### tap_touch
+Tap the 3DS touchscreen (3DS backend only).
+
 ```json
-{"cmd":"while","left":"$counter","op":"<","right":10}
-  {"cmd":"press","buttons":["A"],"ms":50}
-  {"cmd":"add","var":"counter","value":1}
-{"cmd":"end_while"}
+{"cmd": "tap_touch", "x": 160, "y": 120, "down_time": 0.1, "settle": 0.1}
 ```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x | int | required | X pixel (0-319) |
+| y | int | required | Y pixel (0-239) |
+| down_time | float | 0.1 | Seconds to hold touch |
+| settle | float | 0.1 | Seconds to wait after release |
 
-#### Image: find_color
+### Pokemon Commands
 
-Samples the pixel at `(x,y)` from the latest camera frame and compares against an RGB target with a tolerance:
+#### type_name
+Type a name on Pokemon FRLG/RSE naming screens.
+
 ```json
-{"cmd":"find_color","x":100,"y":200,"rgb":[255,0,0],"tol":20,"out":"match"}
+{"cmd": "type_name", "name": "RED", "confirm": true}
 ```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| name | string | "Red" | Name to type |
+| confirm | bool | true | Press A after Start to confirm |
+| move_delay_ms | int | 200 | Delay after D-pad moves |
+| select_delay_ms | int | 600 | Delay after page switch |
+| press_delay_ms | int | 400 | Delay after letter selection |
+| button_hold_ms | int | 50 | Button hold duration |
 
+---
 
-Stores boolean result in `$match`.
+## Custom Python Scripts
 
-#### Custom Python: run_python
+Create Python scripts in `./py_scripts/` to extend functionality.
 
-Runs a python file from `./py_scripts` (or an absolute path). The file must define:
+### Basic Structure
+
 ```python
 def main(*args):
-    ...
-    return something_json_serializable
+    # Process args
+    # Return JSON-serializable value
+    return {"result": "success"}
 ```
 
-Example command:
+### Accessing Camera Frames
+
+Use `"$frame"` as an argument to receive the current camera frame:
+
 ```json
-{"cmd":"run_python","file":"my_tool.py","args":[1,2,3],"out":"result"}
+{"cmd": "run_python", "file": "vision.py", "args": ["$frame", 100, 200], "out": "color"}
 ```
 
-##### Variable references in args
-
-Arguments can contain `$var` references (including nested lists/dicts):
-```json
-{"cmd":"run_python","file":"tool.py","args":["$counter", {"pt":["$x","$y"]}], "out":"r"}
-```
-
-##### Passing the current camera frame
-
-Use `"$frame"` as an argument to pass the latest frame as a PNG base64 payload:
-```json
-{"cmd":"run_python","file":"vision.py","args":["$frame", 10, 20], "out":"ok"}
-```
-
-
-In `example_frame_input.py`, decode like this:
 ```python
+# vision.py
 import base64
 from io import BytesIO
 from PIL import Image
@@ -358,272 +461,269 @@ def decode_frame(payload):
 
 def main(frame_payload, x, y):
     img = decode_frame(frame_payload)
-    # ... process ...
-    return True
+    if img is None:
+        return None
+    pixel = img.getpixel((x, y))
+    return {"r": pixel[0], "g": pixel[1], "b": pixel[2]}
 ```
 
-#### Export to Python
+### Using Variables in Args
 
-Scripts can be exported to standalone Python files for distribution or direct execution.
+Reference script variables with `$varname`:
 
-**Supported Commands:**
-- ✅ `comment` - Comments in generated code
-- ✅ `wait` - Time delays
-- ✅ `press` - Button presses
-- ✅ `hold` - Button holds
-- ✅ `mash` - Button mashing
-- ✅ `set`, `add`, `contains` - Variable operations
-- ✅ `if/end_if` - Conditional blocks
-- ✅ `while/end_while` - Loop blocks
-- ✅ `run_python` - Python script execution
+```json
+{"cmd": "run_python", "file": "tool.py", "args": ["$counter", {"coords": ["$x", "$y"]}], "out": "result"}
+```
 
-**Limitations:**
-- ❌ `find_color`, `read_text` - Camera frame processing not included in export
-- ❌ `label`, `goto` - Not compatible with structured Python export
-- ❌ `$frame` references - Camera functionality excluded
-- ❌ `tap_touch` - 3DS-specific command not exported
-- ❌ `type_name` - Complex keyboard navigation not supported
+### Example: Math Operations
 
-**Benefits of Python Export:**
-- **No timing delays** - Runs natively without engine overhead
-- **Standalone execution** - No need for the full application
-- **Distribution** - Share scripts as single Python files
-- **Performance** - Direct serial communication without intermediary
-- **Customization** - Edit generated Python code as needed
-
-**How to Export:**
-1. Load your script in the editor
-2. Click "Export to Python" button (if available in GUI)
-3. Or use `ScriptToPy.export_script_to_python()`
-4. Generated file includes all necessary serial communication code
-
-**Example Generated Code:**
 ```python
-# Variables
-counter = 0  # from $counter
-
-# Pairing warm-up (~3 seconds neutral)
-send_buttons([])
-wait_with_keepalive(3.0)
-
-# Press A every second, 10 times
-while counter < 10:
-    press(['A'], 80.0)
-    wait_with_keepalive(920.0/1000.0)
-    counter += 1
+# example_math.py
+def main(a, b, operation="add"):
+    if operation == "add":
+        return a + b
+    elif operation == "multiply":
+        return a * b
+    return None
 ```
 
 ---
 
-#### Adding Custom Commands
+## Export to Standalone Python
 
-Commands live in `ScriptEngine._build_default_registry()` as `CommandSpec` entries. To add one:
+Convert scripts to standalone Python files for distribution or direct execution.
 
-1. Create a formatter `fmt_mycmd(c)` (pretty display)
+### Supported Commands
 
-2. Create an executor `cmd_mycmd(ctx, c)` (runtime behavior)
+| Command | Exported | Notes |
+|---------|----------|-------|
+| comment | Yes | Becomes Python comment |
+| wait | Yes | Direct time.sleep |
+| press | Yes | Serial communication |
+| hold | Yes | Serial communication |
+| mash | Yes | Loop with timing |
+| set, add | Yes | Python variables |
+| contains | Yes | Python `in` operator |
+| if/end_if | Yes | Python if statements |
+| while/end_while | Yes | Python while loops |
+| run_python | Yes | Subprocess call |
+| find_color | No | Requires camera |
+| read_text | No | Requires camera + pytesseract |
+| label/goto | No | Not compatible with structured code |
+| tap_touch | No | 3DS-specific |
+| type_name | No | Complex navigation |
 
-3. Register it via `CommandSpec(...)` with:
+### How to Export
 
-   - `group` and `order` for the Insert panel
+1. Load your script in the editor
+2. Click **Export .py** button
+3. Choose save location
+4. Run the generated Python file directly
 
-   - `arg_schema` so the editor knows how to edit it
+### Generated Code Features
 
-See the existing `find_color` implementation for a camera-reading example.
-
-#### Custom Command Tutorial
-
-To add a new command, you generally do 5 things in `ScriptEngine.py`:
-
-1. Decide the command’s JSON shape
-
-    Every script line is a dict with at least:
-
-    ```json
-    { "cmd": "your_command_name", "...": "args" }
-    ```
-
-
-    Pick required fields and optional fields.
-
-    Example target:
-    ```json
-
-    { "cmd": "beep", "freq": 880, "ms": 120 }
-    ```
-
-2. Add a pretty formatter (how it displays in the Script list)
-
-    Inside `_build_default_registry()` (near the other `fmt_*` functions), add:
-    ```python
-    def fmt_beep(c):
-        return f"Beep {c.get('freq', 440)} Hz for {c.get('ms', 100)} ms"
-    ```
-
-    _Optional_, but makes the command appear more clear in the command list.
-
-3. Implement the runtime function `cmd_*`
-
-    Inside `_build_default_registry()` (near the other `cmd_*` functions), add:
-    ```python
-    def cmd_beep(ctx, c):
-        freq = int(resolve_value(ctx, c.get("freq", 440)))
-        ms = int(resolve_value(ctx, c.get("ms", 100)))
-
-        # Your behavior here...
-        # For example: set a variable to prove it ran
-        ctx["vars"]["last_beep"] = {"freq": freq, "ms": ms}
-
-        # If you want delays, prefer the existing wait:
-        # cmd_wait(ctx, {"ms": ms})
-    ```
-
-    Notes:
-
-    - You get access to engine context via ctx:
-
-        - `ctx["vars"] `– variable dict
-
-        - `ctx["get_frame"]()` – latest camera frame (BGR numpy array) or None
-
-        - `ctx["labels"]`, `ctx["if_map"]`, `ctx["while_to_end"]`, etc.
-
-        - `ctx["stop"].is_set()` – stop flag
-
-        - `ctx["ip"]` – current instruction pointer (for jumps)
-
-    If you want your command to support `$var` references, run values through `resolve_value(ctx, ...)` or, for nested lists/dicts, `resolve_vars_deep(ctx, ...)`.
-
-4. Register it with a `CommandSpec`
-
-    Add a new `CommandSpec(...)` entry to the `specs = [...]` list:
-    ```python
-    CommandSpec(
-        "beep",
-        ["freq", "ms"],                 # required keys
-        cmd_beep,                       # runtime function
-        doc="Play a beep sound (example).",
-        arg_schema=[
-            {"key": "freq", "type": "int", "default": 440, "help": "Frequency in Hz"},
-            {"key": "ms", "type": "int", "default": 100, "help": "Duration in milliseconds"},
-        ],
-        format_fn=fmt_beep,
-        group="Custom",
-        order=20
-    ),
-    ```
-
-    What these fields do:
-
-    - `name`: command name used in JSON cmd
-
-    - `required_keys`: validation when loading
-
-    - `fn`: runtime execution
-
-    - `doc`: shown in Insert panel and editor
-
-    - `arg_schema`: drives the Edit dialog UI defaults and field types
-
-    - `format_fn`: nice display string in the script list
-
-    - `group`/`order`: where it appears in the Insert Command panel
-
-#### Packaging as an EXE (Windows)
-
-Recommended: PyInstaller `--onedir` with bundled ffmpeg.
-
-1. Ensure the code uses a bundled `ffmpeg.exe` if present (helper like `ffmpeg_path()`).
-
-2. Build:
-```bat
-py -m pip install pyinstaller
-pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner --add-data "scripts;scripts" --add-data "py_scripts;py_scripts" main.py
-```
-
-Distribute the resulting `dist/ControllerMacroRunner/` folder as a zip.
+- Standalone serial communication
+- Built-in keep-alive mechanism
+- All variable and control flow logic
+- No external dependencies beyond pyserial
 
 ---
 
-## Test Scripts
+## Keyboard Control Mode
 
-The `scripts/` directory includes comprehensive test scripts to verify functionality:
+Control the game directly with your keyboard when no script is running.
 
-### Timing & Performance Tests
-- **test_timing_precision.json** - Sub-millisecond timing accuracy verification
-- **test_rapid_buttons.json** - Immediate transmission for fast sequences
-- **test_mash_speeds.json** - Various mashing speeds (5-50 presses/sec)
+### Enabling
 
-### Feature Tests
-- **test_quick.json** - Fast sanity check (~3 seconds)
-- **test_mash_basic.json** - Basic mash command functionality
-- **test_all_buttons.json** - All button types and combinations
-- **test_variables_mash.json** - Variable-controlled parameters
-- **test_comprehensive.json** - Full integration test (~20 seconds)
+1. Check **Keyboard Control** checkbox in the top bar
+2. Ensure serial is connected
+3. Script must not be running
 
-See `scripts/README_TESTS.md` for detailed descriptions and usage instructions.
+### Default Key Bindings
+
+| Key | Button |
+|-----|--------|
+| W | Up |
+| A | Left |
+| S | Down |
+| D | Right |
+| J | A |
+| K | B |
+| U | X |
+| I | Y |
+| Enter | Start |
+| Space | Select |
+| Q | L |
+| E | R |
+
+### Customizing Bindings
+
+Click **Keybinds...** to open the keybind configuration window:
+- Select a button and click **Rebind...**
+- Press the desired key
+- Press Escape to cancel
+- Click **Restore defaults** to reset all bindings
 
 ---
 
 ## Troubleshooting
 
-- No cameras listed
+### Camera Issues
 
-    - Verify FFmpeg can list dshow devices:
-      ```
-      ffmpeg -list_devices true -f dshow -i dummy
-      ```
+**No cameras listed:**
+1. Verify FFmpeg can detect cameras:
+   ```bat
+   ffmpeg -list_devices true -f dshow -i dummy
+   ```
+2. Ensure `ffmpeg.exe` and DLLs are in `./bin/` folder
+3. Check if camera is in use by another application
 
-    - If using bundled ffmpeg, ensure `ffmpeg.exe` and the `*.dll` files are in the the `./bin` folder.
+**Video only shows partial frame or decode errors:**
+- Ensure the camera supports the selected resolution
+- Try a different aspect ratio setting
 
-- Video only shows top-left / decode errors
+### Serial Connection Issues
 
-    - Use rawvideo piping approach (already implemented).
+**COM port not listed:**
+1. Check Device Manager for the correct COM port
+2. Install drivers if needed (e.g., CH340 drivers for some USB-serial adapters)
+3. Click **Refresh** to update the list
 
-    - Ensure output is `bgr24` and frame size matches reshape.
+**Connection fails:**
+- Ensure no other application is using the COM port
+- Try disconnecting and reconnecting the USB device
 
-- Script won’t run
+### Script Issues
 
-  - Make sure serial is connected
+**Script won't run:**
+- Check that serial is connected
+- Ensure all if/while blocks have matching end_if/end_while
+- Check the status bar for error messages
 
-  - Ensure `if/while` blocks are properly closed when running
+**Timing seems off:**
+- The timing system is optimized for Windows; precision may vary on virtual machines
+- For ultra-fast sequences, ensure no CPU throttling is active
 
-  - Editor tolerates incomplete blocks, but Run is strict
+### OCR Issues (read_text)
+
+**pytesseract not found:**
+1. Install pytesseract: `pip install pytesseract`
+2. Install Tesseract OCR from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
+3. Add Tesseract to your PATH
+
+**Poor recognition:**
+- Increase the `scale` parameter (4-8 for pixel fonts)
+- Try different `threshold` values
+- Use `invert: true` for light text on dark background
+- Restrict characters with `whitelist`
 
 ---
 
-## Recent Improvements
+## Advanced Topics
+
+### Serial Packet Format
+
+The USB transmitter uses 3-byte packets:
+
+| Byte | Value | Description |
+|------|-------|-------------|
+| 0 | 0x54 | Header |
+| 1 | High byte | L=0x01, R=0x02, X=0x04, Y=0x08 |
+| 2 | Low byte | A=0x01, B=0x02, Right=0x04, Left=0x08, Up=0x10, Down=0x20, Select=0x40, Start=0x80 |
+
+### 3DS Input Redirection
+
+Uses 20-byte UDP packets containing:
+- HID pad state (4 bytes)
+- Touch state (4 bytes)
+- Circle pad (4 bytes)
+- C-stick/CPP state (4 bytes)
+- Interface buttons (4 bytes)
+
+Touch coordinates are mapped from 320x240 pixel space to 12-bit HID values.
 
 ### High-Precision Timing System
-- Hybrid sleep approach (sleep + busy-wait) for sub-millisecond accuracy
-- Supports fractional milliseconds (e.g., 3.5ms, 7.25ms)
+
+The engine uses a hybrid approach for sub-millisecond accuracy:
+- **Durations < 2ms**: Pure busy-wait for maximum precision
+- **Durations >= 2ms**: Sleep for most of the duration, busy-wait for final 2ms
+- Supports fractional milliseconds (e.g., `"ms": 3.5`)
 - Eliminates timing drift in long sequences
-- Enables 200+ button presses per second
 
-### Immediate Serial Transmission
-- Button state changes send immediately (no 50ms keepalive delay)
-- Enables rapid sequences faster than 50ms
-- Critical for ultra-fast mashing and frame-perfect combos
-- Keep-alive thread still runs as backup safety net
+### Adding Custom Commands
 
-### Mash Command
-- Rapidly mash buttons at configurable rates
-- Default: 20 presses/second (customizable to 200+)
-- Independent hold_ms and wait_ms parameters
-- Precise timing for each press cycle
+Edit `ScriptEngine.py` in `_build_default_registry()`:
+
+1. Create a formatter function:
+   ```python
+   def fmt_mycommand(c):
+       return f"MyCommand param={c.get('param')}"
+   ```
+
+2. Create an executor function:
+   ```python
+   def cmd_mycommand(ctx, c):
+       param = resolve_value(ctx, c.get("param"))
+       # Your implementation
+       ctx["vars"]["result"] = param * 2
+   ```
+
+3. Register with CommandSpec:
+   ```python
+   CommandSpec(
+       "mycommand",
+       ["param"],  # required keys
+       cmd_mycommand,
+       doc="Description of what this command does.",
+       arg_schema=[
+           {"key": "param", "type": "int", "default": 0, "help": "Parameter description"}
+       ],
+       format_fn=fmt_mycommand,
+       group="Custom",
+       order=10
+   )
+   ```
+
+### Packaging as EXE
+
+Use PyInstaller to create a standalone executable:
+
+```bat
+py -m pip install pyinstaller
+
+pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
+  --add-data "scripts;scripts" ^
+  --add-data "py_scripts;py_scripts" ^
+  main.py
+```
+
+Distribute the `dist/ControllerMacroRunner/` folder as a zip file. Include the `bin/` folder with FFmpeg.
 
 ---
 
 ## Safety Notes
 
-- `run_python` executes local code. Only run scripts you trust.
-- Keep controller output neutral when not actively running actions.
+- **run_python** executes local code. Only run scripts you trust.
+- Keep controller output neutral when not actively running scripts.
 - Test scripts carefully before using in production environments.
+- The application has no network access except for 3DS Input Redirection (local UDP).
 
 ---
 
-## Documentation
+## Contributing
 
-- **CLAUDE.md** - Comprehensive guide for AI assistants and developers
-- **scripts/README_TESTS.md** - Test script documentation
-- See inline code comments for implementation details
+See [CLAUDE.md](CLAUDE.md) for developer documentation and contribution guidelines.
+
+---
+
+## License
+
+This project is provided as-is for personal use. See individual component licenses for dependencies.
+
+---
+
+## Acknowledgments
+
+- [insideGadgets](https://shop.insidegadgets.com/) for the USB Wireless TX hardware
+- [FFmpeg](https://ffmpeg.org/) for video capture capabilities
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for text recognition
