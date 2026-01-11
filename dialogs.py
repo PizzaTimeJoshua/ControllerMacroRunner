@@ -66,7 +66,15 @@ class CommandEditorDialog(tk.Toplevel):
             self.cmd_name_var.set(initial_cmd["cmd"])
         else:
             keys = self._ordered_command_names()
-            self.cmd_name_var.set("press" if "press" in keys else (keys[0] if keys else ""))
+            # Find first non-header command (prefer "press" if available)
+            if "press" in keys:
+                self.cmd_name_var.set("press")
+            else:
+                # Find first non-header item
+                for k in keys:
+                    if not k.startswith("───"):
+                        self.cmd_name_var.set(k)
+                        break
 
         self._render_fields(initial_cmd=initial_cmd)
 
@@ -76,10 +84,27 @@ class CommandEditorDialog(tk.Toplevel):
         self.geometry(f"+{x}+{y}")
 
     def _ordered_command_names(self):
+        """Build a list of command names with category headers."""
+        # Sort commands by group, then order, then name
         def keyfn(name):
             s = self.registry[name]
             return (s.group, s.order, s.name)
-        return [n for n in sorted(self.registry.keys(), key=keyfn)]
+
+        sorted_names = sorted(self.registry.keys(), key=keyfn)
+
+        # Group commands by category
+        result = []
+        current_group = None
+
+        for name in sorted_names:
+            spec = self.registry[name]
+            if spec.group != current_group:
+                # Add category header (prefixed with special marker)
+                result.append(f"─── {spec.group} ───")
+                current_group = spec.group
+            result.append(name)
+
+        return result
 
     def _clear_fields(self):
         for child in self.fields_frame.winfo_children():
@@ -93,7 +118,25 @@ class CommandEditorDialog(tk.Toplevel):
         if not name:
             return
 
-        spec = self.registry[name]
+        # Skip category headers (they start with "───")
+        if name.startswith("───"):
+            # Find first command after this header
+            all_names = self._ordered_command_names()
+            try:
+                idx = all_names.index(name)
+                # Find next non-header item
+                for i in range(idx + 1, len(all_names)):
+                    if not all_names[i].startswith("───"):
+                        self.cmd_name_var.set(all_names[i])
+                        self._render_fields(initial_cmd)
+                        return
+            except (ValueError, IndexError):
+                pass
+            return
+
+        spec = self.registry.get(name)
+        if not spec:
+            return
         self.doc_var.set(spec.doc or "")
 
         for r, field in enumerate(spec.arg_schema):
@@ -348,9 +391,13 @@ class CommandEditorDialog(tk.Toplevel):
 
     def _save(self):
         name = self.cmd_name_var.get()
-        if not name:
+        if not name or name.startswith("───"):
+            messagebox.showerror("Invalid selection", "Please select a command (not a category header).", parent=self)
             return
-        spec = self.registry[name]
+        spec = self.registry.get(name)
+        if not spec:
+            messagebox.showerror("Invalid command", f"Command '{name}' not found in registry.", parent=self)
+            return
 
         cmd_obj = {"cmd": name}
         try:
@@ -379,6 +426,9 @@ class CommandEditorDialog(tk.Toplevel):
 
         # Build a cmd object from the current UI fields without closing the dialog
         name = self.cmd_name_var.get()
+        if not name or name.startswith("───"):
+            messagebox.showerror("Test", "Please select a command (not a category header).", parent=self)
+            return
         spec = self.registry.get(name)
         if not spec:
             messagebox.showerror("Test", "Unknown command.", parent=self)

@@ -10,6 +10,7 @@ FFmpeg:
 """
 import os
 import json
+import re
 import threading
 import subprocess
 import tkinter as tk
@@ -373,75 +374,37 @@ class App:
 
 
 
-        # Right pane: vertically split Insert/Script/Vars
+        # Right pane: vertically split Script/Vars
         right_split = tk.PanedWindow(right, orient=tk.VERTICAL, sashrelief=tk.RAISED, sashwidth=6, showhandle=False, bd=0)
         right_split.grid(row=0, column=0, sticky="nsew")
         right.rowconfigure(0, weight=1)
-
-        # --- Insert panel
-        insert_box = ttk.LabelFrame(right_split, text="Insert Command")
-        insert_box.columnconfigure(0, weight=1)
-        insert_box.rowconfigure(1, weight=1)
-
-        self.cmd_search_var = tk.StringVar(value="")
-        search_row = ttk.Frame(insert_box)
-        search_row.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
-        search_row.columnconfigure(1, weight=1)
-
-        ttk.Label(search_row, text="Search:").grid(row=0, column=0, sticky="w")
-        search_entry = ttk.Entry(search_row, textvariable=self.cmd_search_var)
-        search_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-
-        self.auto_close_block_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            search_row,
-            text="Auto add end_if/end_while",
-            variable=self.auto_close_block_var
-        ).grid(row=0, column=2, sticky="w", padx=(10, 0))
-
-        # Tree of commands with group headers
-        self.insert_tree = ttk.Treeview(insert_box, columns=("cmd", "desc"), show="tree headings", height=8)
-        self.insert_tree.heading("#0", text="Group")
-        self.insert_tree.heading("cmd", text="Command")
-        self.insert_tree.heading("desc", text="Description")
-        self.insert_tree.column("#0", width=140, stretch=False)
-        self.insert_tree.column("cmd", width=120, stretch=False)
-        self.insert_tree.column("desc", width=420, stretch=True)
-        self.insert_tree.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 6))
-
-        ins_scr = ttk.Scrollbar(insert_box, orient="vertical", command=self.insert_tree.yview)
-        self.insert_tree.configure(yscrollcommand=ins_scr.set)
-        ins_scr.grid(row=1, column=1, sticky="ns", pady=(0, 6))
-
-        # Buttons
-        ins_btnrow = ttk.Frame(insert_box)
-        ins_btnrow.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 6))
-        ttk.Button(ins_btnrow, text="Insert", command=self.insert_selected_command).pack(side="left")
-        ttk.Button(ins_btnrow, text="Insert + Edit", command=self.insert_selected_command_and_edit).pack(side="left", padx=(6, 0))
 
         # --- Script viewer
         script_box = ttk.LabelFrame(right_split, text="Script Commands (right-click menu, double-click edit)")
         script_box.rowconfigure(0, weight=1)
         script_box.columnconfigure(0, weight=1)
 
-        self.script_tree = ttk.Treeview(
+        # Use Text widget instead of Treeview for per-character coloring
+        self.script_text = tk.Text(
             script_box,
-            columns=("idx", "pretty"),
-            show="headings",
-            height=12
+            wrap="none",
+            height=12,
+            font=("Consolas", 9),
+            state="disabled",  # Read-only by default
+            cursor="arrow"
         )
-        self.script_tree.heading("idx", text="#")
-        self.script_tree.heading("pretty", text="Command")
-        self.script_tree.column("idx", width=40, anchor="e", stretch=False)
-        self.script_tree.column("pretty", width=520, anchor="w", stretch=True)
-        self.script_tree.grid(row=0, column=0, sticky="nsew")
+        self.script_text.grid(row=0, column=0, sticky="nsew")
 
-        scr = ttk.Scrollbar(script_box, orient="vertical", command=self.script_tree.yview)
-        self.script_tree.configure(yscrollcommand=scr.set)
-        scr.grid(row=0, column=1, sticky="ns")
+        scr_y = ttk.Scrollbar(script_box, orient="vertical", command=self.script_text.yview)
+        self.script_text.configure(yscrollcommand=scr_y.set)
+        scr_y.grid(row=0, column=1, sticky="ns")
+
+        scr_x = ttk.Scrollbar(script_box, orient="horizontal", command=self.script_text.xview)
+        self.script_text.configure(xscrollcommand=scr_x.set)
+        scr_x.grid(row=1, column=0, sticky="ew")
 
         btnrow = ttk.Frame(script_box)
-        btnrow.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        btnrow.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Button(btnrow, text="Add", command=self.add_command).pack(side="left", padx=2)
         ttk.Button(btnrow, text="Edit", command=self.edit_command).pack(side="left", padx=2)
         ttk.Button(btnrow, text="Delete", command=self.delete_command).pack(side="left", padx=2)
@@ -471,22 +434,20 @@ class App:
         vsc.grid(row=0, column=1, sticky="ns")
 
         # Add panes
-        right_split.add(insert_box, minsize=170)
         right_split.add(script_box, minsize=220)
         right_split.add(vars_box, minsize=140)
 
-        # Tags / bindings
-        self.script_tree.tag_configure("ip", background="#dbeafe")
-        self.script_tree.bind("<Button-3>", self._on_script_right_click)
-        self.script_tree.bind("<Double-1>", self._on_script_double_click)
+        # Tags / bindings for Text widget
+        self.script_text.tag_configure("ip", background="#dbeafe")
+        self.script_text.tag_configure("comment", foreground="#228B22")  # Forest green
+        self.script_text.tag_configure("variable", foreground="#0066CC")  # Blue
+        self.script_text.tag_configure("selected", background="#e0e0e0")  # Selected line
+        self.script_text.bind("<Button-3>", self._on_script_right_click)
+        self.script_text.bind("<Double-1>", self._on_script_double_click)
+        self.script_text.bind("<Button-1>", self._on_script_click)
 
-        # Insert panel bindings
-        self.cmd_search_var.trace_add("write", lambda *args: self.populate_insert_panel())
-        self.insert_tree.bind("<Double-1>", lambda e: self.insert_selected_command_and_edit())
-        self.insert_tree.bind("<Return>", lambda e: self.insert_selected_command_and_edit())
-
-        # Build initial insert list
-        self.populate_insert_panel()
+        # Track selected line for editing
+        self.selected_script_line = None
 
 
     def _normalize_keysym(self, event):
@@ -706,21 +667,39 @@ class App:
         self.ctx.add_command(label="Save", command=self.save_script)
         self.ctx.add_command(label="Save As...", command=self.save_script_as)
 
+    def _on_script_click(self, event):
+        # Select line on click
+        line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
+        self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
+
     def _on_script_right_click(self, event):
-        iid = self.script_tree.identify_row(event.y)
-        if iid:
-            self.script_tree.selection_set(iid)
+        # Select line and show context menu
+        line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
+        self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
         try:
             self.ctx.tk_popup(event.x_root, event.y_root)
         finally:
             self.ctx.grab_release()
 
     def _on_script_double_click(self, event):
-        # Only edit if a row is double-clicked (not empty area)
-        iid = self.script_tree.identify_row(event.y)
-        if iid:
-            self.script_tree.selection_set(iid)
-            self.edit_command()
+        # Edit command on double-click
+        line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
+        self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
+        self.edit_command()
+
+    def _select_script_line(self, idx):
+        """Select a script line by index."""
+        if idx < 0 or idx >= len(self.engine.commands):
+            return
+
+        # Clear previous selection
+        self.script_text.tag_remove("selected", "1.0", "end")
+
+        # Select new line (Text widget is 1-indexed)
+        line_start = f"{idx + 1}.0"
+        line_end = f"{idx + 1}.end"
+        self.script_text.tag_add("selected", line_start, line_end)
+        self.selected_script_line = idx
 
     def _on_video_mouse_leave(self, event):
         self._last_video_xy = None
@@ -1525,7 +1504,9 @@ class App:
 
     # ---- script viewer
     def populate_script_view(self):
-        self.script_tree.delete(*self.script_tree.get_children())
+        # Enable editing to modify content
+        self.script_text.config(state="normal")
+        self.script_text.delete("1.0", "end")
 
         indent_on = bool(self.indent_var.get()) if hasattr(self, "indent_var") else True
         depth = 0
@@ -1542,120 +1523,39 @@ class App:
             if indent_on:
                 pretty = ("      " * depth) + pretty  # 6 spaces per level
 
-            # Insert row
-            self.script_tree.insert("", "end", iid=str(i), values=(i, pretty))
+            # Format line with index number (right-aligned in 4 chars)
+            line_text = f"{i:4}  {pretty}\n"
+
+            # Insert line
+            line_start = self.script_text.index("end-1c")
+            self.script_text.insert("end", line_text)
+            line_end = self.script_text.index("end-1c")
+
+            # Apply syntax highlighting
+            if cmd == "comment":
+                # Color entire comment line green
+                self.script_text.tag_add("comment", line_start, line_end)
+            else:
+                # Find and color all $variable references in blue
+                # Search after the line number (skip first 6 chars: "   0  ")
+                content_start_col = 6
+                line_num = i + 1  # Text widget is 1-indexed
+
+                # Find all variable references in the line
+                for match in re.finditer(r'\$\w+', line_text[content_start_col:]):
+                    var_start = f"{line_num}.{content_start_col + match.start()}"
+                    var_end = f"{line_num}.{content_start_col + match.end()}"
+                    self.script_text.tag_add("variable", var_start, var_end)
 
             # Increase indent AFTER printing for opening blocks
             if indent_on and cmd in ("if", "while"):
                 depth += 1
 
+        # Disable editing to make it read-only
+        self.script_text.config(state="disabled")
         self.highlight_ip(-1)
 
-    def populate_insert_panel(self):
-        """
-        Builds a grouped command list with group headers as parent nodes.
-        Filters by search text across name/group/doc.
-        """
-        if not hasattr(self, "insert_tree"):
-            return
 
-        search = (self.cmd_search_var.get() or "").strip().lower()
-
-        self.insert_tree.delete(*self.insert_tree.get_children())
-
-        # group -> parent iid
-        group_nodes = {}
-
-        for name, spec in self.engine.ordered_specs():
-            hay = f"{spec.group} {name} {spec.doc}".lower()
-            if search and search not in hay:
-                continue
-
-            if spec.group not in group_nodes:
-                gid = self.insert_tree.insert("", "end", text=spec.group, values=("", ""), open=True)
-                group_nodes[spec.group] = gid
-
-            parent = group_nodes[spec.group]
-            # store command name in iid so we can retrieve easily
-            iid = f"cmd::{name}"
-            self.insert_tree.insert(parent, "end", iid=iid, text="", values=(name, (spec.doc or "")))
-
-        # If there's only one group and one command visible, select it
-        all_cmd_items = []
-        for g in self.insert_tree.get_children(""):
-            for child in self.insert_tree.get_children(g):
-                all_cmd_items.append(child)
-        if all_cmd_items:
-            self.insert_tree.selection_set(all_cmd_items[0])
-            self.insert_tree.see(all_cmd_items[0])
-
-    def insert_selected_command(self):
-        self._insert_selected_command(edit_after=False)
-
-    def insert_selected_command_and_edit(self):
-        self._insert_selected_command(edit_after=True)
-
-    def _insert_selected_command(self, edit_after: bool):
-        if self.engine.running:
-            messagebox.showwarning("Running", "Stop the script before editing.")
-            return
-
-        cmd_name = self._get_selected_insert_command()
-        if not cmd_name:
-            return
-
-        idx = self._get_selected_index()
-        insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
-
-        # Build default command object based on schema defaults
-        spec = self.engine.registry[cmd_name]
-        cmd_obj = {"cmd": cmd_name}
-        for f in spec.arg_schema:
-            k = f["key"]
-            if "default" in f:
-                cmd_obj[k] = f["default"]
-
-        # Insert command
-        self.engine.commands.insert(insert_at, cmd_obj)
-
-        # Auto-insert end markers for blocks
-        if self.auto_close_block_var.get():
-            if cmd_name == "if":
-                self.engine.commands.insert(insert_at + 1, {"cmd": "end_if"})
-            elif cmd_name == "while":
-                self.engine.commands.insert(insert_at + 1, {"cmd": "end_while"})
-
-        # Tolerant rebuild during editing
-        try:
-            self.engine.rebuild_indexes(strict=False)
-        except Exception as e:
-            self.set_status(f"Index warning: {e}")
-
-        self.populate_script_view()
-        self.mark_dirty(True)
-
-        # Select inserted row and optionally open editor
-        self.script_tree.selection_set(str(insert_at))
-        self.script_tree.see(str(insert_at))
-
-        if edit_after:
-            # If we auto-inserted end_if/end_while, edit the opening line
-            self.edit_command()
-
-
-    def _get_selected_insert_command(self):
-        sel = self.insert_tree.selection()
-        if not sel:
-            return None
-        iid = sel[0]
-        if not iid.startswith("cmd::"):
-            # group header selected, try first child
-            kids = self.insert_tree.get_children(iid)
-            if kids:
-                iid = kids[0]
-            else:
-                return None
-        return iid.split("cmd::", 1)[1]
 
 
 
@@ -1687,24 +1587,23 @@ class App:
         self.root.after(0, lambda: self.highlight_ip(ip))
 
     def highlight_ip(self, ip):
-        for item in self.script_tree.get_children():
-            self.script_tree.item(item, tags=())
+        # Clear IP highlight (syntax highlighting is preserved in tags)
+        self.script_text.tag_remove("ip", "1.0", "end")
+
         if ip is None or ip < 0:
             return
-        iid = str(ip)
-        if self.script_tree.exists(iid):
-            self.script_tree.item(iid, tags=("ip",))
-            self.script_tree.see(iid)
+
+        if ip < len(self.engine.commands):
+            # Highlight the instruction pointer line (Text widget is 1-indexed)
+            line_start = f"{ip + 1}.0"
+            line_end = f"{ip + 1}.end"
+            self.script_text.tag_add("ip", line_start, line_end)
+            self.script_text.see(line_start)
 
     # ---- editor actions
     def _get_selected_index(self):
-        sel = self.script_tree.selection()
-        if not sel:
-            return None
-        try:
-            return int(sel[0])
-        except Exception:
-            return None
+        """Get the index of the currently selected script line."""
+        return self.selected_script_line
 
     def _reindex_after_edit(self):
         try:
@@ -1754,8 +1653,7 @@ class App:
 
         self._reindex_after_edit()
 
-        self.script_tree.selection_set(str(insert_at))
-        self.script_tree.see(str(insert_at))
+        self._select_script_line(insert_at)
 
     def edit_command(self):
         if self.engine.running:
@@ -1781,8 +1679,7 @@ class App:
 
         self.engine.commands[idx] = dlg.result
         self._reindex_after_edit()
-        self.script_tree.selection_set(str(idx))
-        self.script_tree.see(str(idx))
+        self._select_script_line(idx)
 
     def delete_command(self):
         if self.engine.running:
@@ -1801,8 +1698,7 @@ class App:
 
         new_idx = min(idx, len(self.engine.commands) - 1)
         if new_idx >= 0:
-            self.script_tree.selection_set(str(new_idx))
-            self.script_tree.see(str(new_idx))
+            self._select_script_line(new_idx)
 
     def move_command(self, delta):
         if self.engine.running:
@@ -1819,8 +1715,7 @@ class App:
         self.engine.commands[idx], self.engine.commands[j] = self.engine.commands[j], self.engine.commands[idx]
         self._reindex_after_edit()
 
-        self.script_tree.selection_set(str(j))
-        self.script_tree.see(str(j))
+        self._select_script_line(j)
 
     def add_comment(self):
         if self.engine.running:
@@ -1833,8 +1728,7 @@ class App:
         self.engine.commands.insert(insert_at, {"cmd": "comment", "text": "New comment"})
         self._reindex_after_edit()
 
-        self.script_tree.selection_set(str(insert_at))
-        self.script_tree.see(str(insert_at))
+        self._select_script_line(insert_at)
 
     def _resolve_test_value(self, v):
         """
