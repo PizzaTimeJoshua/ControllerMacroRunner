@@ -31,7 +31,7 @@ name_page_other =[
     '!','?','♂','♀','/','-','back',
     '…','“','”','‘','’',' ','OK'
 ]
-def type_name(name = "Red",wait_time=0): # Compatibible with Pokemon FRLG and RSE naming.
+def type_name(name = "Red",confirm=True): # Compatibible with Pokemon FRLG and RSE naming.
     current_position = [0,0]
     name_pages = [name_page_upper,name_page_lower,name_page_other]
     current_page = 0
@@ -77,11 +77,9 @@ def type_name(name = "Red",wait_time=0): # Compatibible with Pokemon FRLG and RS
     
     cmd_press('Start')
     time.sleep(0.2)
-
-    time.sleep(wait_time)
-
-    cmd_press('A')
-    time.sleep(0.2)
+    if confirm:
+        cmd_press('A')
+        time.sleep(0.2)
 
 # ----------------------------
 # High-Precision Timing Utilities
