@@ -1909,7 +1909,7 @@ class App:
                 x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
                 y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
                 rgb = cmd_obj.get("rgb", [0, 0, 0])
-                tol = int(self._resolve_test_value(cmd_obj.get("tol", 0)))
+                tol = float(self._resolve_test_value(cmd_obj.get("tol", 10)))
                 out = (cmd_obj.get("out") or "match").strip()
 
                 h, w, _ = frame.shape
@@ -1921,18 +1921,31 @@ class App:
 
                 # Sample pixel (frame is BGR)
                 b, g, r = frame[y, x].tolist()
-                sampled_rgb = [int(r), int(g), int(b)]
+                sampled_rgb = (int(r), int(g), int(b))
+                target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
-                target = [int(rgb[0]), int(rgb[1]), int(rgb[2])]
-                tol = max(0, tol)
+                # Calculate CIE76 Delta E
+                delta_e = ScriptEngine.delta_e_cie76(sampled_rgb, target)
+                ok = delta_e <= tol
 
-                ok = all(abs(sampled_rgb[i] - target[i]) <= tol for i in range(3))
+                # Interpretation of Delta E values
+                if delta_e <= 1:
+                    perception = "imperceptible"
+                elif delta_e <= 2:
+                    perception = "barely perceptible"
+                elif delta_e <= 10:
+                    perception = "noticeable"
+                elif delta_e <= 49:
+                    perception = "obvious"
+                else:
+                    perception = "very different"
 
                 msg = (
                     f"Point: ({x},{y})\n"
-                    f"Sampled RGB: {sampled_rgb}\n"
-                    f"Target RGB:  {target}\n"
-                    f"Tolerance:   {tol}\n\n"
+                    f"Sampled RGB: {list(sampled_rgb)}\n"
+                    f"Target RGB:  {list(target)}\n\n"
+                    f"Delta E (CIE76): {delta_e:.2f} ({perception})\n"
+                    f"Tolerance: {tol}\n\n"
                     f"Result (would set ${out}): {ok}"
                 )
                 return ("find_color Test", msg)

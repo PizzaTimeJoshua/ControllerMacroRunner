@@ -27,6 +27,106 @@ except ImportError:
     CV2_AVAILABLE = False
 
 # ----------------------------
+# CIE76 Color Difference (Delta E) Functions
+# ----------------------------
+
+def rgb_to_xyz(r, g, b):
+    """
+    Convert sRGB to CIE XYZ color space.
+    Uses D65 white point.
+    """
+    # Normalize RGB to 0-1 range
+    r = r / 255.0
+    g = g / 255.0
+    b = b / 255.0
+
+    # Apply sRGB gamma correction (inverse companding)
+    def linearize(c):
+        if c <= 0.04045:
+            return c / 12.92
+        return ((c + 0.055) / 1.055) ** 2.4
+
+    r = linearize(r)
+    g = linearize(g)
+    b = linearize(b)
+
+    # sRGB to XYZ matrix (D65 white point)
+    x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375
+    y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750
+    z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041
+
+    return x, y, z
+
+
+def xyz_to_lab(x, y, z):
+    """
+    Convert CIE XYZ to CIELAB color space.
+    Uses D65 white point (Xn=0.95047, Yn=1.0, Zn=1.08883).
+    """
+    # D65 white point
+    xn, yn, zn = 0.95047, 1.0, 1.08883
+
+    # Normalize by white point
+    x = x / xn
+    y = y / yn
+    z = z / zn
+
+    # Apply f(t) function
+    def f(t):
+        delta = 6.0 / 29.0
+        if t > delta ** 3:
+            return t ** (1.0 / 3.0)
+        return t / (3.0 * delta ** 2) + 4.0 / 29.0
+
+    fx = f(x)
+    fy = f(y)
+    fz = f(z)
+
+    L = 116.0 * fy - 16.0
+    a = 500.0 * (fx - fy)
+    b = 200.0 * (fy - fz)
+
+    return L, a, b
+
+
+def rgb_to_lab(r, g, b):
+    """Convert RGB (0-255) to CIELAB color space."""
+    x, y, z = rgb_to_xyz(r, g, b)
+    return xyz_to_lab(x, y, z)
+
+
+def delta_e_cie76(rgb1, rgb2):
+    """
+    Calculate CIE76 color difference (Delta E) between two RGB colors.
+
+    Delta E values interpretation:
+    - 0-1: Not perceptible by human eyes
+    - 1-2: Perceptible through close observation
+    - 2-10: Perceptible at a glance
+    - 11-49: Colors are more similar than opposite
+    - 100: Colors are exact opposite
+
+    Args:
+        rgb1: First color as (R, G, B) with values 0-255
+        rgb2: Second color as (R, G, B) with values 0-255
+
+    Returns:
+        Delta E value (0 = identical, higher = more different)
+    """
+    # Clamp RGB values to valid range
+    r1 = max(0, min(255, int(rgb1[0])))
+    g1 = max(0, min(255, int(rgb1[1])))
+    b1 = max(0, min(255, int(rgb1[2])))
+    r2 = max(0, min(255, int(rgb2[0])))
+    g2 = max(0, min(255, int(rgb2[1])))
+    b2 = max(0, min(255, int(rgb2[2])))
+
+    L1, a1, b1_lab = rgb_to_lab(r1, g1, b1)
+    L2, a2, b2_lab = rgb_to_lab(r2, g2, b2)
+
+    return math.sqrt((L2 - L1) ** 2 + (a2 - a1) ** 2 + (b2_lab - b1_lab) ** 2)
+
+# ----------------------------
 # Pokemon Name Typer Keyboard Layouts
 # Compatible with Pokemon FRLG and RSE naming screens
 # ----------------------------
@@ -742,7 +842,7 @@ class ScriptEngine:
         def fmt_while(c): return f"While {c.get('left')} {c.get('op')} {c.get('right')}"
         def fmt_end_while(c): return "End While"
         def fmt_find_color(c):
-            return f"FindColor ({c.get('x')},{c.get('y')}) ~ {c.get('rgb')} tol={c.get('tol',0)} -> ${c.get('out')}"
+            return f"FindColor ({c.get('x')},{c.get('y')}) ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} -> ${c.get('out')}"
         def fmt_comment(c): return f"// {c.get('text','')}"
         def fmt_run_python(c):
             out = c.get("out")
@@ -881,11 +981,13 @@ class ScriptEngine:
                 return
 
             b, g, r = frame[y, x].tolist()
-            sample_rgb = [int(r), int(g), int(b)]
-            target = c["rgb"]
-            tol = int(c.get("tol", 0))
+            sample_rgb = (int(r), int(g), int(b))
+            target = (int(c["rgb"][0]), int(c["rgb"][1]), int(c["rgb"][2]))
+            tol = float(c.get("tol", 10))
 
-            ok = all(abs(sample_rgb[i] - int(target[i])) <= tol for i in range(3))
+            # Use CIE76 Delta E for perceptually accurate color comparison
+            delta_e = delta_e_cie76(sample_rgb, target)
+            ok = delta_e <= tol
             ctx["vars"][out] = ok
 
         def cmd_read_text(ctx, c):
@@ -1289,12 +1391,12 @@ class ScriptEngine:
             ),
             CommandSpec(
                 "find_color", ["x", "y", "rgb", "out"], cmd_find_color,
-                doc="Sample pixel at (x,y) from latest camera frame and compare to rgb within tolerance. Stores bool in $out.",
+                doc="Sample pixel at (x,y) and compare to rgb using CIE76 Delta E (perceptual). Stores bool in $out.",
                 arg_schema=[
                     {"key": "x", "type": "int", "default": 0, "help": "X coordinate"},
                     {"key": "y", "type": "int", "default": 0, "help": "Y coordinate"},
                     {"key": "rgb", "type": "rgb", "default": [255, 0, 0], "help": "Target RGB as [R,G,B]"},
-                    {"key": "tol", "type": "int", "default": 20, "help": "Tolerance per channel"},
+                    {"key": "tol", "type": "float", "default": 10, "help": "Delta E tolerance (0-1: imperceptible, 2-10: noticeable, 10+: obvious)"},
                     {"key": "out", "type": "str", "default": "match", "help": "Variable name to store result (no $)"},
                 ],
                 format_fn=fmt_find_color,
