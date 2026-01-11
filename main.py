@@ -34,6 +34,7 @@ from camera import (
     list_dshow_video_devices,
     scale_image_to_fit,
     CameraPopoutWindow,
+    RegionSelectorWindow,
 )
 from audio import (
     PYAUDIO_AVAILABLE,
@@ -1733,7 +1734,12 @@ class App:
         idx = self._get_selected_index()
         insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
 
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(
+            self.root, self.engine.registry,
+            initial_cmd=None, title="Add Command",
+            test_callback=self._dialog_test_callback,
+            select_area_callback=self._open_region_selector
+        )
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1760,7 +1766,12 @@ class App:
             return
 
         initial = self.engine.commands[idx]
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(
+            self.root, self.engine.registry,
+            initial_cmd=initial, title="Edit Command",
+            test_callback=self._dialog_test_callback,
+            select_area_callback=self._open_region_selector
+        )
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1830,10 +1841,29 @@ class App:
             return self.engine.vars.get(v[1:], None)
         return v
 
+    def _open_region_selector(self, initial_region, on_select_callback):
+        """
+        Open the region selector window for selecting an area on the camera.
+
+        Args:
+            initial_region: Optional tuple (x, y, width, height) to show initially
+            on_select_callback: Callback with (x, y, width, height) when confirmed
+        """
+        if not self.cam_running:
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to select a region.",
+                parent=self.root
+            )
+            return
+
+        # Open the region selector window
+        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region)
+
     def test_command_dialog(self, cmd_obj):
         """
         Returns (title, message) for a given cmd_obj.
-        Currently supports: find_color
+        Currently supports: find_color, read_text
         """
         cmd = cmd_obj.get("cmd")
         match cmd:
@@ -1873,14 +1903,77 @@ class App:
                     f"Result (would set ${out}): {ok}"
                 )
                 return ("find_color Test", msg)
+
+            case "read_text":
+                # Check if pytesseract is available
+                if not ScriptEngine.PYTESSERACT_AVAILABLE:
+                    return ("read_text Test",
+                            "pytesseract is not installed.\n\n"
+                            "Install with:\n"
+                            "  pip install pytesseract\n\n"
+                            "Also install Tesseract OCR:\n"
+                            "  Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                            "  Linux: sudo apt install tesseract-ocr")
+
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("read_text Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                width = int(self._resolve_test_value(cmd_obj.get("width", 100)))
+                height = int(self._resolve_test_value(cmd_obj.get("height", 20)))
+                scale = int(self._resolve_test_value(cmd_obj.get("scale", 4)))
+                threshold = int(self._resolve_test_value(cmd_obj.get("threshold", 0)))
+                invert = bool(self._resolve_test_value(cmd_obj.get("invert", False)))
+                psm = int(self._resolve_test_value(cmd_obj.get("psm", 7)))
+                whitelist = str(self._resolve_test_value(cmd_obj.get("whitelist", "")))
+                out = (cmd_obj.get("out") or "text").strip()
+
+                h_frame, w_frame, _ = frame.shape
+
+                # Check bounds
+                if x < 0 or y < 0 or x >= w_frame or y >= h_frame:
+                    return ("read_text Test",
+                            f"Region out of bounds.\n"
+                            f"Top-left: ({x},{y})\n"
+                            f"Frame size: {w_frame}x{h_frame}")
+
+                # Perform OCR
+                try:
+                    text = ScriptEngine.ocr_region(
+                        frame, x, y, width, height,
+                        scale=scale, threshold=threshold, invert=invert,
+                        psm=psm, whitelist=whitelist
+                    )
+                except Exception as e:
+                    return ("read_text Test", f"OCR Error:\n{e}")
+
+                # Build result message
+                msg = (
+                    f"Region: ({x},{y}) {width}x{height}\n"
+                    f"Settings:\n"
+                    f"  Scale: {scale}x\n"
+                    f"  Threshold: {threshold}\n"
+                    f"  Invert: {invert}\n"
+                    f"  PSM: {psm}\n"
+                    f"  Whitelist: '{whitelist}'\n\n"
+                    f"Recognized text (would set ${out}):\n"
+                    f"───────────────────────\n"
+                    f"{text if text else '(empty)'}\n"
+                    f"───────────────────────"
+                )
+                return ("read_text Test", msg)
+
             case _:
                 raise ValueError("No tester implemented for this command.")
 
     def _dialog_test_callback(self, cmd_obj):
-        # Only enable for find_color (for now)
+        # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color":
+            case "find_color" | "read_text":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")
