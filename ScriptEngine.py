@@ -12,6 +12,77 @@ import math
 import re
 from tkinter import messagebox
 
+#Unimplemented Type Name Command
+name_page_upper =[
+    'A','B','C','D','E','F',' ','.','next',
+    'G','H','I','J','K','L',' ',',','back',
+    'M','N','O','P','Q','R','S',' ','back',
+    'T','U','V','W','X','Y','Z',' ','OK'
+]
+name_page_lower =[
+    'a','b','c','d','e','f',' ','.','next',
+    'g','h','i','j','k','l',' ',',','back',
+    'm','n','o','p','q','r','s',' ','back',
+    't','u','v','w','x','y','z',' ','OK'
+]
+name_page_other =[
+    '0','1','2','3','4',' ','next',
+    '5','6','7','8','9',' ','back',
+    '!','?','♂','♀','/','-','back',
+    '…','“','”','‘','’',' ','OK'
+]
+def type_name(name = "Red",wait_time=0): # Compatibible with Pokemon FRLG and RSE naming.
+    current_position = [0,0]
+    name_pages = [name_page_upper,name_page_lower,name_page_other]
+    current_page = 0
+    current_page_width = 9
+    for letter in name:
+        while letter not in name_pages[current_page]:
+            cmd_press('Select')
+            time.sleep(0.6)
+            current_page = (current_page + 1) % (len(name_pages))
+            new_current_page_width = 6 if name_pages[current_page]==name_page_other else 9
+            if current_position[0]==(current_page_width-1):
+                current_position[0] = new_current_page_width
+                current_page_width = new_current_page_width
+            else:
+                current_position[0] = min(current_position[0] , new_current_page_width-2)
+            
+        # Locate letter
+        pos = name_pages[current_page].index(letter)
+        posx = pos % current_page_width
+        posy = pos // current_page_width
+        while current_position[0] != posx:
+            if posx > current_position[0]: #move right
+                cmd_press('Right')
+                current_position[0] = current_position[0]+1
+                time.sleep(0.2)
+            if posx < current_position[0]: #move left
+                cmd_press('Left')
+                current_position[0] = current_position[0]-1
+                time.sleep(0.2)
+
+
+        while current_position[1] != posy:
+            if posy > current_position[1]: #move down
+                cmd_press('Down')
+                current_position[1] = current_position[1]+1
+                time.sleep(0.2)
+            if posy < current_position[1]: #move up
+                cmd_press('Up')
+                current_position[1] = current_position[1]-1
+                time.sleep(0.2)
+        cmd_press('A')
+        time.sleep(0.4)
+    
+    cmd_press('Start')
+    time.sleep(0.2)
+
+    time.sleep(wait_time)
+
+    cmd_press('A')
+    time.sleep(0.2)
+
 # ----------------------------
 # High-Precision Timing Utilities
 # ----------------------------
