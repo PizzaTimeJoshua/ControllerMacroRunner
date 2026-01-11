@@ -10,6 +10,7 @@ FFmpeg:
 """
 import os
 import json
+import re
 import threading
 import subprocess
 import tkinter as tk
@@ -1498,8 +1499,11 @@ class App:
             tags = []
             if cmd == "comment":
                 tags.append("comment")
-            elif cmd in ("set", "add", "contains"):
-                tags.append("variable")
+            else:
+                # Check if this command contains any variable references ($var)
+                cmd_str = json.dumps(c)  # Convert command dict to string to search
+                if re.search(r'\$\w+', cmd_str):
+                    tags.append("variable")
 
             # Insert row
             self.script_tree.insert("", "end", iid=str(i), values=(i, pretty), tags=tags)
@@ -1547,12 +1551,16 @@ class App:
             try:
                 idx = int(item)
                 if idx < len(self.engine.commands):
-                    cmd = self.engine.commands[idx].get("cmd")
+                    c = self.engine.commands[idx]
+                    cmd = c.get("cmd")
                     tags = []
                     if cmd == "comment":
                         tags.append("comment")
-                    elif cmd in ("set", "add", "contains"):
-                        tags.append("variable")
+                    else:
+                        # Check if this command contains any variable references ($var)
+                        cmd_str = json.dumps(c)
+                        if re.search(r'\$\w+', cmd_str):
+                            tags.append("variable")
                     self.script_tree.item(item, tags=tuple(tags))
             except (ValueError, IndexError):
                 self.script_tree.item(item, tags=())
