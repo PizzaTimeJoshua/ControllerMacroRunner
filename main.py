@@ -35,6 +35,7 @@ from camera import (
     scale_image_to_fit,
     CameraPopoutWindow,
     RegionSelectorWindow,
+    ColorPickerWindow,
 )
 from audio import (
     PYAUDIO_AVAILABLE,
@@ -1738,7 +1739,8 @@ class App:
             self.root, self.engine.registry,
             initial_cmd=None, title="Add Command",
             test_callback=self._dialog_test_callback,
-            select_area_callback=self._open_region_selector
+            select_area_callback=self._open_region_selector,
+            select_color_callback=self._open_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1770,7 +1772,8 @@ class App:
             self.root, self.engine.registry,
             initial_cmd=initial, title="Edit Command",
             test_callback=self._dialog_test_callback,
-            select_area_callback=self._open_region_selector
+            select_area_callback=self._open_region_selector,
+            select_color_callback=self._open_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1841,13 +1844,17 @@ class App:
             return self.engine.vars.get(v[1:], None)
         return v
 
-    def _open_region_selector(self, initial_region, on_select_callback):
+    def _open_region_selector(self, initial_region, on_select_callback, on_close_callback=None):
         """
         Open the region selector window for selecting an area on the camera.
 
         Args:
             initial_region: Optional tuple (x, y, width, height) to show initially
             on_select_callback: Callback with (x, y, width, height) when confirmed
+            on_close_callback: Optional callback called when window closes (for any reason)
+
+        Returns:
+            True if the selector window was opened, False otherwise
         """
         if not self.cam_running:
             messagebox.showwarning(
@@ -1855,10 +1862,36 @@ class App:
                 "Please start the camera first to select a region.",
                 parent=self.root
             )
-            return
+            return False
 
         # Open the region selector window
-        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region)
+        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region, on_close_callback=on_close_callback)
+        return True
+
+    def _open_color_picker(self, initial_x, initial_y, on_select_callback, on_close_callback=None):
+        """
+        Open the color picker window for selecting a color from the camera.
+
+        Args:
+            initial_x: Optional initial X coordinate
+            initial_y: Optional initial Y coordinate
+            on_select_callback: Callback with (x, y, r, g, b) when confirmed
+            on_close_callback: Optional callback called when window closes (for any reason)
+
+        Returns:
+            True if the picker window was opened, False otherwise
+        """
+        if not self.cam_running:
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to pick a color.",
+                parent=self.root
+            )
+            return False
+
+        # Open the color picker window
+        ColorPickerWindow(self, on_select_callback, initial_x=initial_x, initial_y=initial_y, on_close_callback=on_close_callback)
+        return True
 
     def test_command_dialog(self, cmd_obj):
         """
@@ -1876,7 +1909,7 @@ class App:
                 x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
                 y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
                 rgb = cmd_obj.get("rgb", [0, 0, 0])
-                tol = int(self._resolve_test_value(cmd_obj.get("tol", 0)))
+                tol = float(self._resolve_test_value(cmd_obj.get("tol", 10)))
                 out = (cmd_obj.get("out") or "match").strip()
 
                 h, w, _ = frame.shape
@@ -1888,18 +1921,31 @@ class App:
 
                 # Sample pixel (frame is BGR)
                 b, g, r = frame[y, x].tolist()
-                sampled_rgb = [int(r), int(g), int(b)]
+                sampled_rgb = (int(r), int(g), int(b))
+                target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
-                target = [int(rgb[0]), int(rgb[1]), int(rgb[2])]
-                tol = max(0, tol)
+                # Calculate CIE76 Delta E
+                delta_e = ScriptEngine.delta_e_cie76(sampled_rgb, target)
+                ok = delta_e <= tol
 
-                ok = all(abs(sampled_rgb[i] - target[i]) <= tol for i in range(3))
+                # Interpretation of Delta E values
+                if delta_e <= 1:
+                    perception = "imperceptible"
+                elif delta_e <= 2:
+                    perception = "barely perceptible"
+                elif delta_e <= 10:
+                    perception = "noticeable"
+                elif delta_e <= 49:
+                    perception = "obvious"
+                else:
+                    perception = "very different"
 
                 msg = (
                     f"Point: ({x},{y})\n"
-                    f"Sampled RGB: {sampled_rgb}\n"
-                    f"Target RGB:  {target}\n"
-                    f"Tolerance:   {tol}\n\n"
+                    f"Sampled RGB: {list(sampled_rgb)}\n"
+                    f"Target RGB:  {list(target)}\n\n"
+                    f"Delta E (CIE76): {delta_e:.2f} ({perception})\n"
+                    f"Tolerance: {tol}\n\n"
                     f"Result (would set ${out}): {ok}"
                 )
                 return ("find_color Test", msg)
