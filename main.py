@@ -435,6 +435,8 @@ class App:
 
         # Tags / bindings
         self.script_tree.tag_configure("ip", background="#dbeafe")
+        self.script_tree.tag_configure("comment", foreground="#228B22")  # Forest green
+        self.script_tree.tag_configure("variable", foreground="#0066CC")  # Blue
         self.script_tree.bind("<Button-3>", self._on_script_right_click)
         self.script_tree.bind("<Double-1>", self._on_script_double_click)
 
@@ -1492,8 +1494,15 @@ class App:
             if indent_on:
                 pretty = ("      " * depth) + pretty  # 6 spaces per level
 
+            # Determine tags for syntax highlighting
+            tags = []
+            if cmd == "comment":
+                tags.append("comment")
+            elif cmd in ("set", "add", "contains"):
+                tags.append("variable")
+
             # Insert row
-            self.script_tree.insert("", "end", iid=str(i), values=(i, pretty))
+            self.script_tree.insert("", "end", iid=str(i), values=(i, pretty), tags=tags)
 
             # Increase indent AFTER printing for opening blocks
             if indent_on and cmd in ("if", "while"):
@@ -1533,13 +1542,30 @@ class App:
         self.root.after(0, lambda: self.highlight_ip(ip))
 
     def highlight_ip(self, ip):
+        # Clear IP highlight but preserve syntax highlighting tags
         for item in self.script_tree.get_children():
-            self.script_tree.item(item, tags=())
+            try:
+                idx = int(item)
+                if idx < len(self.engine.commands):
+                    cmd = self.engine.commands[idx].get("cmd")
+                    tags = []
+                    if cmd == "comment":
+                        tags.append("comment")
+                    elif cmd in ("set", "add", "contains"):
+                        tags.append("variable")
+                    self.script_tree.item(item, tags=tuple(tags))
+            except (ValueError, IndexError):
+                self.script_tree.item(item, tags=())
+
         if ip is None or ip < 0:
             return
         iid = str(ip)
         if self.script_tree.exists(iid):
-            self.script_tree.item(iid, tags=("ip",))
+            # Get existing tags and add "ip"
+            current_tags = list(self.script_tree.item(iid, "tags"))
+            if "ip" not in current_tags:
+                current_tags.append("ip")
+            self.script_tree.item(iid, tags=tuple(current_tags))
             self.script_tree.see(iid)
 
     # ---- editor actions
