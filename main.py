@@ -14,667 +14,33 @@ import threading
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
-import re
 import numpy as np
 from PIL import Image, ImageTk
 
-from serial.tools import list_ports
-import sys
 from typing import Optional
+
+# Import from local modules
 import ThreeDSClasses
 import SerialController
 import ScriptEngine
 import ScriptToPy
-
-# Audio support (optional)
-try:
-    import pyaudio
-    PYAUDIO_AVAILABLE = True
-except ImportError:
-    PYAUDIO_AVAILABLE = False
-    pyaudio = None
-
-
-def resource_path(rel_path: str) -> str:
-    base = getattr(sys, "_MEIPASS", os.path.abspath("."))
-    return os.path.join(base, rel_path)
-
-def ffmpeg_path() -> str:
-    # Prefer bundled ffmpeg.exe
-    bundled = resource_path("bin/ffmpeg.exe")
-    if os.path.exists(bundled):
-        return bundled
-    return "ffmpeg"  # fallback to PATH
-
-
-
-
-
-# ----------------------------
-# Camera (FFmpeg pipe -> Tk)
-# ----------------------------
-
-def list_dshow_video_devices():
-    try:
-        p = subprocess.run(
-            [ffmpeg_path(), "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-            capture_output=True
-        )
-
-    except FileNotFoundError:
-        return []
-
-    raw = p.stderr or b""
-    try:
-        text = raw.decode("mbcs", errors="replace")
-    except Exception:
-        text = raw.decode("utf-8", errors="replace")
-
-    devices = []
-    for line in text.splitlines():
-        s = line.strip()
-        if "Alternative name" in s:
-            continue
-        if "(video)" not in s:
-            continue
-        first = s.find('"')
-        last = s.rfind('"')
-        if first != -1 and last != -1 and last > first:
-            name = s[first + 1:last].strip()
-            if name and name not in devices:
-                devices.append(name)
-    return devices
-
-
-def scale_image_to_fit(img: Image.Image, max_width: int, max_height: int) -> Image.Image:
-    """
-    Scale an image to fit within max_width x max_height while preserving aspect ratio.
-    Returns the scaled image.
-    """
-    if max_width <= 0 or max_height <= 0:
-        return img
-
-    orig_w, orig_h = img.size
-    if orig_w <= 0 or orig_h <= 0:
-        return img
-
-    # Calculate scale factor to fit within bounds
-    scale_w = max_width / orig_w
-    scale_h = max_height / orig_h
-    scale = min(scale_w, scale_h)
-
-    # Don't upscale beyond 1.0 for main window, but allow for popout/fullscreen
-    # Actually, we want to allow scaling up for fullscreen, so no cap here
-
-    new_w = max(1, int(orig_w * scale))
-    new_h = max(1, int(orig_h * scale))
-
-    if new_w == orig_w and new_h == orig_h:
-        return img
-
-    return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-
-# ----------------------------
-# Camera Popout Window
-# ----------------------------
-
-class CameraPopoutWindow:
-    """Separate window for camera display with fullscreen support"""
-
-    def __init__(self, app, on_close_callback):
-        self.app = app
-        self.on_close_callback = on_close_callback
-        self.is_fullscreen = False
-
-        # Create toplevel window
-        self.window = tk.Toplevel(app.root)
-        self.window.title("Camera View")
-        self.window.geometry("800x600")
-        self.window.configure(bg="black")
-
-        # Create video label with black background, centered
-        self.video_label = tk.Label(self.window, anchor="center", bg="black")
-        self.video_label.pack(fill=tk.BOTH, expand=True)
-
-        # Bind events
-        self.video_label.bind("<Motion>", self._on_video_mouse_move)
-        self.video_label.bind("<Leave>", self._on_video_mouse_leave)
-        self.video_label.bind("<Button-1>", self._on_video_click_copy)
-        self.video_label.bind("<Shift-Button-1>", self._on_video_click_copy_json)
-        self.video_label.bind("<Double-Button-1>", self._toggle_fullscreen)
-
-        # Bind ESC key to exit fullscreen
-        self.window.bind("<Escape>", self._exit_fullscreen)
-
-        # Handle window close
-        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
-
-        # Coordinate display
-        self.coord_var = tk.StringVar(value="x: -, y: -")
-        coord_bar = ttk.Frame(self.window)
-        coord_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
-        ttk.Label(coord_bar, textvariable=self.coord_var).pack(side=tk.LEFT, padx=6)
-
-        # Track display size and offset for coordinate mapping
-        self._disp_img_w = 0
-        self._disp_img_h = 0
-        self._video_offset_x = 0  # Offset of video within the display area
-        self._video_offset_y = 0
-        self._last_video_xy = None
-
-    def _toggle_fullscreen(self, event=None):
-        """Toggle between windowed and fullscreen mode"""
-        if self.is_fullscreen:
-            self._exit_fullscreen()
-        else:
-            self._enter_fullscreen()
-
-    def _enter_fullscreen(self, event=None):
-        """Enter fullscreen mode"""
-        self.is_fullscreen = True
-        self.window.attributes("-fullscreen", True)
-        self.app.set_status("Camera fullscreen (press ESC to exit)")
-
-    def _exit_fullscreen(self, event=None):
-        """Exit fullscreen mode"""
-        if self.is_fullscreen:
-            self.is_fullscreen = False
-            self.window.attributes("-fullscreen", False)
-            self.app.set_status("Camera windowed")
-
-    def _on_window_close(self):
-        """Handle window close - return to embedded mode"""
-        self._exit_fullscreen()
-        self.on_close_callback()
-
-    def update_frame(self, pil_img):
-        """Update the video display with a new frame, scaling to fit window and centering"""
-        if pil_img is None:
-            return
-
-        # Get available size for the video (window size minus coord bar)
-        self.window.update_idletasks()
-        available_w = self.video_label.winfo_width()
-        available_h = self.video_label.winfo_height()
-
-        # Fallback to window size if label size not yet available
-        if available_w <= 1 or available_h <= 1:
-            available_w = self.window.winfo_width()
-            available_h = self.window.winfo_height() - 30  # Approximate coord bar height
-
-        # Scale image to fit while maintaining aspect ratio
-        if available_w > 1 and available_h > 1:
-            scaled_img = scale_image_to_fit(pil_img, available_w, available_h)
-        else:
-            scaled_img = pil_img
-
-        # Calculate offset for centering (used for coordinate mapping)
-        scaled_w, scaled_h = scaled_img.size
-        self._video_offset_x = (available_w - scaled_w) // 2
-        self._video_offset_y = (available_h - scaled_h) // 2
-
-        # Convert to PhotoImage and display
-        tk_img = ImageTk.PhotoImage(scaled_img)
-        self._disp_img_w = tk_img.width()
-        self._disp_img_h = tk_img.height()
-        self.video_label.imgtk = tk_img
-        self.video_label.configure(image=tk_img)
-
-    def _event_to_frame_xy(self, event):
-        """Convert mouse event to frame coordinates"""
-        with self.app.frame_lock:
-            frame = self.app.latest_frame_bgr
-            if frame is None:
-                return None
-            fh, fw, _ = frame.shape
-
-        iw = self._disp_img_w or fw
-        ih = self._disp_img_h or fh
-
-        # Account for centering offset
-        off_x = self._video_offset_x
-        off_y = self._video_offset_y
-        x_img = int(event.x) - off_x
-        y_img = int(event.y) - off_y
-
-        if not (0 <= x_img < iw and 0 <= y_img < ih):
-            return None
-
-        x = int(x_img * fw / iw)
-        y = int(y_img * fh / ih)
-
-        if 0 <= x < fw and 0 <= y < fh:
-            return (x, y)
-        return None
-
-    def _on_video_mouse_move(self, event):
-        """Handle mouse movement over video"""
-        xy = self._event_to_frame_xy(event)
-        if xy is None:
-            self._last_video_xy = None
-            self.coord_var.set("x: -, y: -")
-            return
-        x, y = xy
-        self._last_video_xy = (x, y)
-        self.coord_var.set(f"x: {x}, y: {y}")
-
-    def _on_video_mouse_leave(self, event):
-        """Handle mouse leaving video area"""
-        self._last_video_xy = None
-        self.coord_var.set("x: -, y: -")
-
-    def _on_video_click_copy(self, event):
-        """Copy coordinates on click"""
-        xy = self._event_to_frame_xy(event) or self._last_video_xy
-        if xy is None:
-            self.app.set_status("No coords to copy.")
-            return
-        x, y = xy
-        s = f"{x},{y}"
-        self.app._copy_to_clipboard(s)
-        self.app.set_status(f"Copied coords: {s}")
-
-    def _on_video_click_copy_json(self, event):
-        """Copy coordinates as JSON on Shift+click"""
-        xy = self._event_to_frame_xy(event) or self._last_video_xy
-        if xy is None:
-            self.app.set_status("No coords to copy.")
-            return
-        x, y = xy
-        s = json.dumps({"x": x, "y": y})
-        self.app._copy_to_clipboard(s)
-        self.app.set_status(f"Copied coords JSON: {s}")
-
-    def close(self):
-        """Close the window"""
-        try:
-            self.window.destroy()
-        except:
-            pass
-
-def safe_script_filename(name: str) -> str:
-    name = name.strip()
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", name)  # Windows-illegal chars
-    name = re.sub(r"\s+", " ", name).strip()
-    if not name:
-        return ""
-    if not name.lower().endswith(".json"):
-        name += ".json"
-    return name
-
-def list_python_files():
-    folder = "py_scripts"
-    if not os.path.isdir(folder):
-        return []
-    return sorted([n for n in os.listdir(folder) if n.lower().endswith(".py")])
-
-
-# ----------------------------
-# Audio (PyAudio)
-# ----------------------------
-
-def list_audio_devices():
-    """Returns (input_devices, output_devices) as lists of (index, name) tuples."""
-    if not PYAUDIO_AVAILABLE or pyaudio is None:
-        return [], []
-
-    try:
-        p = pyaudio.PyAudio()
-        inputs = []
-        outputs = []
-
-        for i in range(p.get_device_count()):
-            try:
-                info = p.get_device_info_by_index(i)
-                name = info.get('name', f'Device {i}')
-                max_in = info.get('maxInputChannels', 0)
-                max_out = info.get('maxOutputChannels', 0)
-
-                if max_in > 0:
-                    inputs.append((i, name))
-                if max_out > 0:
-                    outputs.append((i, name))
-            except Exception:
-                continue
-
-        p.terminate()
-        return inputs, outputs
-    except Exception:
-        return [], []
-
-
-# ----------------------------
-# Editor Dialog (schema-driven)
-# ----------------------------
-
-class CommandEditorDialog(tk.Toplevel):
-    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",test_callback = None):
-        super().__init__(parent)
-        self.parent = parent
-        self.registry = registry
-        self.result = None
-        self.test_callback = test_callback
-
-
-        self.title(title)
-        self.transient(parent)
-        self.grab_set()
-
-        self.cmd_name_var = tk.StringVar()
-        self.field_vars = {}
-        self.widgets = {}
-
-        top = ttk.Frame(self, padding=10)
-        top.grid(row=0, column=0, sticky="nsew")
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-
-        ttk.Label(top, text="Command:").grid(row=0, column=0, sticky="w")
-        self.cmd_combo = ttk.Combobox(
-            top, textvariable=self.cmd_name_var, state="readonly",
-            values=self._ordered_command_names(), width=30
-        )
-        self.cmd_combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        top.columnconfigure(1, weight=1)
-
-        self.doc_var = tk.StringVar(value="")
-        ttk.Label(top, textvariable=self.doc_var, foreground="gray").grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(6, 8)
-        )
-
-        self.fields_frame = ttk.Frame(top)
-        self.fields_frame.grid(row=2, column=0, columnspan=2, sticky="nsew")
-        top.rowconfigure(2, weight=1)
-
-        bottom = ttk.Frame(top)
-        bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        ttk.Button(bottom, text="Cancel", command=self._cancel).pack(side="right", padx=(6, 0))
-        ttk.Button(bottom, text="Save", command=self._save).pack(side="right")
-        self.test_btn = ttk.Button(bottom, text="Test", command=self._test)
-        self.test_btn.pack(side="right", padx=(0, 6))
-
-        self.cmd_combo.bind("<<ComboboxSelected>>", lambda e: self._render_fields())
-
-        if initial_cmd and "cmd" in initial_cmd:
-            self.cmd_name_var.set(initial_cmd["cmd"])
-        else:
-            keys = self._ordered_command_names()
-            self.cmd_name_var.set("press" if "press" in keys else (keys[0] if keys else ""))
-
-
-        self._render_fields(initial_cmd=initial_cmd)
-
-        self.update_idletasks()
-        x = parent.winfo_rootx() + 80
-        y = parent.winfo_rooty() + 80
-        self.geometry(f"+{x}+{y}")
-
-    def _ordered_command_names(self):
-        def keyfn(name):
-            s = self.registry[name]
-            return (s.group, s.order, s.name)
-        return [n for n in sorted(self.registry.keys(), key=keyfn)]
-
-    def _clear_fields(self):
-        for child in self.fields_frame.winfo_children():
-            child.destroy()
-        self.field_vars.clear()
-        self.widgets.clear()
-
-    def _render_fields(self, initial_cmd=None):
-        self._clear_fields()
-        name = self.cmd_name_var.get()
-        if not name:
-            return
-
-        spec = self.registry[name]
-        self.doc_var.set(spec.doc or "")
-
-        for r, field in enumerate(spec.arg_schema):
-            key = field["key"]
-            ftype = field["type"]
-            help_text = field.get("help", "")
-            default = field.get("default", "")
-
-            ttk.Label(self.fields_frame, text=key + ":").grid(row=r, column=0, sticky="w", pady=3)
-
-            init_val = default
-            if initial_cmd and initial_cmd.get("cmd") == name and key in initial_cmd:
-                init_val = initial_cmd[key]
-
-            match ftype:
-                case "int":
-                    var = tk.StringVar(value=str(init_val))
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case "float":
-                    var = tk.StringVar(value=str(init_val))
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case "str":
-                    var = tk.StringVar(value=str(init_val))
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case "bool":
-                    var = tk.BooleanVar(value=bool(init_val))
-                    cb = ttk.Checkbutton(self.fields_frame, variable=var)
-                    cb.grid(row=r, column=1, sticky="w", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = cb
-
-                case "choice":
-                    var = tk.StringVar(value=str(init_val))
-                    combo = ttk.Combobox(
-                        self.fields_frame, textvariable=var, state="readonly",
-                        values=field.get("choices", []), width=28
-                    )
-                    combo.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = combo
-
-                case "json":
-                    var = tk.StringVar(value=json.dumps(init_val))
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case "rgb":
-                    if isinstance(init_val, (list, tuple)) and len(init_val) == 3:
-                        init_text = ",".join(str(int(x)) for x in init_val)
-                    else:
-                        init_text = str(init_val)
-                    var = tk.StringVar(value=init_text)
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case "buttons":
-                    frame = ttk.Frame(self.fields_frame)
-                    frame.grid(row=r, column=1, sticky="ew", pady=3)
-                    lb = tk.Listbox(frame, selectmode="multiple", height=6, exportselection=False)
-                    sb = ttk.Scrollbar(frame, orient="vertical", command=lb.yview)
-                    lb.configure(yscrollcommand=sb.set)
-                    lb.pack(side="left", fill="both", expand=True)
-                    sb.pack(side="left", fill="y")
-
-                    for b in SerialController.ALL_BUTTONS:
-                        lb.insert("end", b)
-
-                    init_buttons = init_val if isinstance(init_val, list) else []
-                    for i, b in enumerate(SerialController.ALL_BUTTONS):
-                        if b in init_buttons:
-                            lb.selection_set(i)
-
-                    self.widgets[key] = lb
-                    self.field_vars[key] = None
-
-                case "pyfile":
-                    # Dropdown of ./py_scripts/*.py, but allow typing arbitrary text too (absolute path)
-                    var = tk.StringVar(value=str(init_val) if init_val is not None else "")
-                    files = list_python_files()
-
-                    combo = ttk.Combobox(
-                        self.fields_frame,
-                        textvariable=var,
-                        values=files,
-                        state="normal",   # allow typing too
-                        width=28
-                    )
-                    combo.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = combo
-
-                case "expr":
-                    var = tk.StringVar(value=str(init_val))
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
-                    self.field_vars[key] = var
-                    self.widgets[key] = ent
-
-                case _:
-                    ttk.Label(self.fields_frame, text=f"(unsupported type: {ftype})").grid(row=r, column=1, sticky="w")
-                
-
-            ttk.Label(self.fields_frame, text=help_text, foreground="gray").grid(row=r, column=2, sticky="w", padx=(8, 0))
-
-        self.fields_frame.columnconfigure(1, weight=1)
-        # Enable Test only if provided and command is supported
-        if self.test_callback is None or spec.test == False:
-            self.test_btn.pack_forget()
-        else:
-            self.test_btn.state(["!disabled"])
-            self.test_btn.pack(side="right", padx=(0, 6))
-
-
-    def _parse_field(self, key, field):
-        ftype = field["type"]
-
-        if ftype == "buttons":
-            lb = self.widgets[key]
-            return [lb.get(i) for i in lb.curselection()]
-
-        var = self.field_vars[key]
-        raw = var.get() if var is not None else None
-        match ftype:
-            case "int":
-                return int(raw.strip())
-            
-            case "float":
-                return float(raw.strip())
-
-            case "str":
-                return str(raw)
-
-            case "bool":
-                return bool(var.get())
-
-            case "choice":
-                return raw
-
-            case "json":
-                s = raw.strip()
-                try:
-                    return json.loads(s)
-                except Exception:
-                    return s
-
-            case "rgb":
-                s = raw.strip()
-                if s.startswith("["):
-                    v = json.loads(s)
-                    if not (isinstance(v, list) and len(v) == 3):
-                        raise ValueError("rgb must be [R,G,B]")
-                    return [int(v[0]), int(v[1]), int(v[2])]
-                parts = [p.strip() for p in s.split(",")]
-                if len(parts) != 3:
-                    raise ValueError("rgb must be 'R,G,B'")
-                return [int(parts[0]), int(parts[1]), int(parts[2])]
-            
-            case "expr":
-                    return raw
-
-        raise ValueError(f"Unsupported type: {ftype}")
-
-    def _save(self):
-        name = self.cmd_name_var.get()
-        if not name:
-            return
-        spec = self.registry[name]
-
-        cmd_obj = {"cmd": name}
-        try:
-            for field in spec.arg_schema:
-                key = field["key"]
-                cmd_obj[key] = self._parse_field(key, field)
-
-            for k in spec.required_keys:
-                if k not in cmd_obj:
-                    raise ValueError(f"Missing required key: {k}")
-
-        except Exception as e:
-            messagebox.showerror("Invalid input", str(e), parent=self)
-            return
-
-        self.result = cmd_obj
-        self.destroy()
-
-    def _cancel(self):
-        self.result = None
-        self.destroy()
-
-    def _test(self):
-        if self.test_callback is None:
-            return
-
-        # Build a cmd object from the current UI fields without closing the dialog
-        name = self.cmd_name_var.get()
-        spec = self.registry.get(name)
-        if not spec:
-            messagebox.showerror("Test", "Unknown command.", parent=self)
-            return
-
-        cmd_obj = {"cmd": name}
-        try:
-            for field in spec.arg_schema:
-                key = field["key"]
-                cmd_obj[key] = self._parse_field(key, field)
-        except Exception as e:
-            messagebox.showerror("Test", f"Invalid inputs:\n{e}", parent=self)
-            return
-
-        try:
-            title, msg = self.test_callback(cmd_obj)
-            messagebox.showinfo(title, msg, parent=self)
-        except Exception as e:
-            messagebox.showerror("Test error", str(e), parent=self)
-
-
-
-# ----------------------------
-# Helpers
-# ----------------------------
-
-def list_com_ports():
-    return [p.device for p in list_ports.comports()]
-
-
-def list_script_files():
-    folder = "scripts"
-    if not os.path.isdir(folder):
-        return []
-    return sorted([n for n in os.listdir(folder) if n.lower().endswith(".json")])
+from utils import (
+    ffmpeg_path,
+    safe_script_filename,
+    list_script_files,
+    list_com_ports,
+)
+from camera import (
+    list_dshow_video_devices,
+    scale_image_to_fit,
+    CameraPopoutWindow,
+)
+from audio import (
+    PYAUDIO_AVAILABLE,
+    pyaudio,
+    list_audio_devices,
+)
+from dialogs import CommandEditorDialog
 
 
 # ----------------------------
@@ -743,7 +109,7 @@ class App:
         self.audio_thread = None
         self.audio_input_devices = []
         self.audio_output_devices = []
-    
+
 
 
 
@@ -756,7 +122,7 @@ class App:
             on_ip_update=self.on_ip_update,
             on_tick=self.on_engine_tick,
         )
-        
+
         # Output backend selection
         self.backend_var = tk.StringVar(value="USB Serial")  # "USB Serial" or "3DS Input Redirection"
         self.threeds_ip_var = tk.StringVar(value="192.168.1.1")
@@ -1285,9 +651,9 @@ class App:
                 self.active_backend = self.threeds_backend or self.serial
         else:
             self.active_backend = self.serial
-            
 
-    
+
+
     def _on_first_configure(self, event):
         # Run only once
         if self._did_initial_split:
@@ -1311,7 +677,7 @@ class App:
                 return
 
             # Make video bigger by default
-            x = int(total * 0.0)  # 
+            x = int(total * 0.0)  #
 
             # ttk.PanedWindow uses sashpos; tk.PanedWindow uses sash_place
             if hasattr(self.main_pane, "sashpos"):
@@ -2463,7 +1829,7 @@ class App:
         if isinstance(v, str) and v.startswith("$"):
             return self.engine.vars.get(v[1:], None)
         return v
-    
+
     def test_command_dialog(self, cmd_obj):
         """
         Returns (title, message) for a given cmd_obj.
