@@ -14,13 +14,14 @@ class CommandEditorDialog(tk.Toplevel):
     """Dialog for editing script commands with schema-driven fields."""
 
     def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",
-                 test_callback=None, select_area_callback=None):
+                 test_callback=None, select_area_callback=None, select_color_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
         self.result = None
         self.test_callback = test_callback
         self.select_area_callback = select_area_callback  # Callback for region selection
+        self.select_color_callback = select_color_callback  # Callback for color picker
 
         self.title(title)
         self.transient(parent)
@@ -159,8 +160,47 @@ class CommandEditorDialog(tk.Toplevel):
                     else:
                         init_text = str(init_val)
                     var = tk.StringVar(value=init_text)
-                    ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
-                    ent.grid(row=r, column=1, sticky="ew", pady=3)
+
+                    # Create a frame to hold entry and color preview
+                    rgb_frame = ttk.Frame(self.fields_frame)
+                    rgb_frame.grid(row=r, column=1, sticky="ew", pady=3)
+
+                    ent = ttk.Entry(rgb_frame, textvariable=var, width=20)
+                    ent.pack(side="left", fill="x", expand=True)
+
+                    # Color preview swatch
+                    swatch = tk.Canvas(rgb_frame, width=30, height=22, bg="#808080",
+                                       highlightthickness=1, highlightbackground="#555")
+                    swatch.pack(side="left", padx=(6, 0))
+
+                    # Store swatch reference for updates
+                    self.widgets[f"{key}_swatch"] = swatch
+
+                    # Update swatch when value changes
+                    def update_swatch(var=var, swatch=swatch):
+                        try:
+                            text = var.get().strip()
+                            if text.startswith("["):
+                                rgb = json.loads(text)
+                            else:
+                                parts = [p.strip() for p in text.split(",")]
+                                rgb = [int(p) for p in parts]
+                            if len(rgb) == 3:
+                                r_val = max(0, min(255, int(rgb[0])))
+                                g_val = max(0, min(255, int(rgb[1])))
+                                b_val = max(0, min(255, int(rgb[2])))
+                                hex_color = f"#{r_val:02x}{g_val:02x}{b_val:02x}"
+                                swatch.configure(bg=hex_color)
+                                return
+                        except Exception:
+                            pass
+                        swatch.configure(bg="#808080")
+
+                    # Initial update
+                    update_swatch()
+                    # Trace changes
+                    var.trace_add("write", lambda *args, fn=update_swatch: fn())
+
                     self.field_vars[key] = var
                     self.widgets[key] = ent
 
@@ -230,6 +270,23 @@ class CommandEditorDialog(tk.Toplevel):
             ttk.Label(
                 select_frame,
                 text="Click to visually select region on camera feed",
+                foreground="gray"
+            ).pack(side="left", padx=(10, 0))
+
+        # Add "Pick Color from Camera" button for find_color command
+        if name == "find_color" and self.select_color_callback:
+            next_row = len(spec.arg_schema)
+            picker_frame = ttk.Frame(self.fields_frame)
+            picker_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+
+            ttk.Button(
+                picker_frame, text="Pick Color from Camera",
+                command=self._open_color_picker
+            ).pack(side="left")
+
+            ttk.Label(
+                picker_frame,
+                text="Click to pick a color and position from camera feed",
                 foreground="gray"
             ).pack(side="left", padx=(10, 0))
 
@@ -363,7 +420,12 @@ class CommandEditorDialog(tk.Toplevel):
         self.grab_release()
 
         # Call the callback to open the selector
-        self.select_area_callback(initial_region, self._on_region_selected)
+        # It returns True if selector was opened, False otherwise
+        # Pass _restore_grab as on_close callback to ensure grab is restored when selector closes
+        opened = self.select_area_callback(initial_region, self._on_region_selected, self._restore_grab)
+        if not opened:
+            # Selector wasn't opened (e.g., camera not running), restore grab
+            self._restore_grab()
 
     def _on_region_selected(self, x, y, width, height):
         """Callback when a region is selected."""
@@ -376,6 +438,57 @@ class CommandEditorDialog(tk.Toplevel):
             self.field_vars["width"].set(str(width))
         if "height" in self.field_vars:
             self.field_vars["height"].set(str(height))
+
+        # Re-grab focus
+        self.grab_set()
+        self.focus_set()
+
+    def _restore_grab(self):
+        """Restore grab on this dialog after picker/selector closes."""
+        try:
+            if self.winfo_exists():
+                self.grab_set()
+                self.focus_set()
+        except Exception:
+            pass
+
+    def _open_color_picker(self):
+        """Open the color picker for find_color command."""
+        if not self.select_color_callback:
+            return
+
+        # Get current values to use as initial selection
+        initial_x = None
+        initial_y = None
+        try:
+            x_var = self.field_vars.get("x")
+            y_var = self.field_vars.get("y")
+            if x_var and y_var:
+                initial_x = int(x_var.get())
+                initial_y = int(y_var.get())
+        except (ValueError, TypeError):
+            pass
+
+        # Release grab temporarily so the picker window can work
+        self.grab_release()
+
+        # Call the callback to open the picker
+        # It returns True if picker was opened, False otherwise
+        # Pass _restore_grab as on_close callback to ensure grab is restored when picker closes
+        opened = self.select_color_callback(initial_x, initial_y, self._on_color_selected, self._restore_grab)
+        if not opened:
+            # Picker wasn't opened (e.g., camera not running), restore grab
+            self._restore_grab()
+
+    def _on_color_selected(self, x, y, r, g, b):
+        """Callback when a color is selected from camera."""
+        # Update the field values
+        if "x" in self.field_vars:
+            self.field_vars["x"].set(str(x))
+        if "y" in self.field_vars:
+            self.field_vars["y"].set(str(y))
+        if "rgb" in self.field_vars:
+            self.field_vars["rgb"].set(f"{r},{g},{b}")
 
         # Re-grab focus
         self.grab_set()

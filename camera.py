@@ -254,15 +254,17 @@ class RegionSelectorWindow:
     User clicks and drags to draw a rectangle, then confirms the selection.
     """
 
-    def __init__(self, app, on_select_callback, initial_region=None):
+    def __init__(self, app, on_select_callback, initial_region=None, on_close_callback=None):
         """
         Args:
             app: Main application instance (for frame access)
             on_select_callback: Called with (x, y, width, height) when confirmed
             initial_region: Optional tuple (x, y, width, height) to show initially
+            on_close_callback: Optional callback called when window closes (for any reason)
         """
         self.app = app
         self.on_select_callback = on_select_callback
+        self.on_close_callback = on_close_callback
         self.result = None
 
         # Selection state
@@ -488,11 +490,294 @@ class RegionSelectorWindow:
             self.result = self.current_rect
             if self.on_select_callback:
                 self.on_select_callback(*self.current_rect)
-            self.window.destroy()
+            self._close_window()
         else:
             self.info_var.set("Please select a region first")
 
     def _cancel(self):
         """Cancel and close"""
         self.result = None
+        self._close_window()
+
+    def _close_window(self):
+        """Close the window and call the close callback"""
         self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()
+
+
+class ColorPickerWindow:
+    """
+    Window for picking a color from the camera feed.
+    User clicks on a pixel to select its color.
+    Also allows picking X,Y coordinates for the find_color command.
+    """
+
+    def __init__(self, app, on_select_callback, initial_x=None, initial_y=None, on_close_callback=None):
+        """
+        Args:
+            app: Main application instance (for frame access)
+            on_select_callback: Called with (x, y, r, g, b) when confirmed
+            initial_x: Optional initial X coordinate
+            initial_y: Optional initial Y coordinate
+            on_close_callback: Optional callback called when window closes (for any reason)
+        """
+        self.app = app
+        self.on_select_callback = on_select_callback
+        self.on_close_callback = on_close_callback
+        self.result = None
+
+        # Selection state
+        self.selected_x = initial_x
+        self.selected_y = initial_y
+        self.selected_rgb = None  # (r, g, b)
+        self.hover_x = None
+        self.hover_y = None
+        self.hover_rgb = None
+
+        # Create window
+        self.window = tk.Toplevel(app.root)
+        self.window.title("Pick Color - Click on camera to select color and position")
+        self.window.geometry("800x600")
+        self.window.configure(bg="black")
+        self.window.transient(app.root)
+        self.window.grab_set()
+
+        # Main container
+        main_frame = ttk.Frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create canvas for video
+        self.canvas = tk.Canvas(main_frame, bg="black", highlightthickness=0)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Right side panel for color info
+        right_panel = ttk.Frame(main_frame, width=200)
+        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=6, pady=6)
+        right_panel.pack_propagate(False)
+
+        # Hover color section
+        ttk.Label(right_panel, text="Hover Color:", font=("", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        self.hover_swatch = tk.Canvas(right_panel, width=180, height=60, bg="#808080", highlightthickness=1, highlightbackground="#555")
+        self.hover_swatch.pack(pady=(0, 4))
+        self.hover_info_var = tk.StringVar(value="Move cursor over image")
+        ttk.Label(right_panel, textvariable=self.hover_info_var, wraplength=180).pack(anchor="w")
+
+        ttk.Separator(right_panel, orient="horizontal").pack(fill="x", pady=10)
+
+        # Selected color section
+        ttk.Label(right_panel, text="Selected Color:", font=("", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        self.selected_swatch = tk.Canvas(right_panel, width=180, height=60, bg="#808080", highlightthickness=1, highlightbackground="#555")
+        self.selected_swatch.pack(pady=(0, 4))
+        self.selected_info_var = tk.StringVar(value="Click to select")
+        ttk.Label(right_panel, textvariable=self.selected_info_var, wraplength=180).pack(anchor="w")
+
+        # Bottom bar with buttons
+        bottom = ttk.Frame(self.window)
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=6, padx=6)
+
+        self.info_var = tk.StringVar(value="Click on camera to pick a color")
+        ttk.Label(bottom, textvariable=self.info_var).pack(side=tk.LEFT)
+
+        ttk.Button(bottom, text="Cancel", command=self._cancel).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bottom, text="Confirm", command=self._confirm).pack(side=tk.RIGHT)
+        ttk.Button(bottom, text="Clear", command=self._clear).pack(side=tk.RIGHT, padx=(0, 6))
+
+        # Bind mouse events
+        self.canvas.bind("<Motion>", self._on_mouse_move)
+        self.canvas.bind("<Leave>", self._on_mouse_leave)
+        self.canvas.bind("<ButtonPress-1>", self._on_click)
+
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        # Display size tracking
+        self._disp_img_w = 0
+        self._disp_img_h = 0
+        self._img_offset_x = 0
+        self._img_offset_y = 0
+        self._frame_w = 0
+        self._frame_h = 0
+
+        # Initialize with existing selection if provided
+        if initial_x is not None and initial_y is not None:
+            self._update_selection_from_coords(initial_x, initial_y)
+
+        # Start frame updates
+        self._update_loop()
+
+    def _update_loop(self):
+        """Update the display with current frame"""
+        if not self.window.winfo_exists():
+            return
+
+        self._update_frame()
+        self.window.after(30, self._update_loop)
+
+    def _update_frame(self):
+        """Draw current frame with crosshair on selected point"""
+        with self.app.frame_lock:
+            frame = self.app.latest_frame_bgr
+            if frame is None:
+                return
+            frame = frame.copy()
+
+        self._frame_w = frame.shape[1]
+        self._frame_h = frame.shape[0]
+
+        # Convert BGR to RGB
+        rgb = frame[:, :, ::-1]
+        img = Image.fromarray(rgb)
+
+        # Get canvas size
+        self.canvas.update_idletasks()
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+
+        if canvas_w <= 1 or canvas_h <= 1:
+            return
+
+        # Scale image to fit
+        scaled_img = scale_image_to_fit(img, canvas_w, canvas_h)
+        scaled_w, scaled_h = scaled_img.size
+
+        # Calculate offset for centering
+        self._img_offset_x = (canvas_w - scaled_w) // 2
+        self._img_offset_y = (canvas_h - scaled_h) // 2
+        self._disp_img_w = scaled_w
+        self._disp_img_h = scaled_h
+
+        # Convert to PhotoImage
+        tk_img = ImageTk.PhotoImage(scaled_img)
+        self.canvas.imgtk = tk_img
+
+        # Clear and redraw
+        self.canvas.delete("all")
+        self.canvas.create_image(
+            self._img_offset_x, self._img_offset_y,
+            anchor="nw", image=tk_img
+        )
+
+        # Draw crosshair on selected point
+        if self.selected_x is not None and self.selected_y is not None:
+            cx, cy = self._frame_to_canvas(self.selected_x, self.selected_y)
+            line_len = 15
+            # Vertical line
+            self.canvas.create_line(cx, cy - line_len, cx, cy + line_len, fill="#00ff00", width=2)
+            # Horizontal line
+            self.canvas.create_line(cx - line_len, cy, cx + line_len, cy, fill="#00ff00", width=2)
+            # Center circle
+            self.canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, outline="#00ff00", width=2)
+
+        # Update hover color if we have coordinates
+        if self.hover_x is not None and self.hover_y is not None:
+            if 0 <= self.hover_x < self._frame_w and 0 <= self.hover_y < self._frame_h:
+                b, g, r = frame[self.hover_y, self.hover_x]
+                self.hover_rgb = (int(r), int(g), int(b))
+                hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                self.hover_swatch.configure(bg=hex_color)
+                self.hover_info_var.set(f"({self.hover_x}, {self.hover_y})\nRGB: {r}, {g}, {b}")
+
+    def _frame_to_canvas(self, fx, fy):
+        """Convert frame coordinates to canvas coordinates"""
+        if self._disp_img_w <= 0 or self._frame_w <= 0:
+            return fx, fy
+        cx = self._img_offset_x + int(fx * self._disp_img_w / self._frame_w)
+        cy = self._img_offset_y + int(fy * self._disp_img_h / self._frame_h)
+        return cx, cy
+
+    def _canvas_to_frame(self, cx, cy):
+        """Convert canvas coordinates to frame coordinates"""
+        if self._disp_img_w <= 0 or self._frame_w <= 0:
+            return None
+
+        # Remove offset
+        ix = cx - self._img_offset_x
+        iy = cy - self._img_offset_y
+
+        # Check if within image bounds
+        if not (0 <= ix < self._disp_img_w and 0 <= iy < self._disp_img_h):
+            return None
+
+        # Scale to frame coordinates
+        fx = int(ix * self._frame_w / self._disp_img_w)
+        fy = int(iy * self._frame_h / self._disp_img_h)
+
+        # Clamp to frame bounds
+        fx = max(0, min(fx, self._frame_w - 1))
+        fy = max(0, min(fy, self._frame_h - 1))
+
+        return fx, fy
+
+    def _on_mouse_move(self, event):
+        """Update hover info"""
+        coords = self._canvas_to_frame(event.x, event.y)
+        if coords is None:
+            self.hover_x = None
+            self.hover_y = None
+            self.hover_info_var.set("Move cursor over image")
+            self.hover_swatch.configure(bg="#808080")
+            return
+
+        self.hover_x, self.hover_y = coords
+
+    def _on_mouse_leave(self, event):
+        """Clear hover info"""
+        self.hover_x = None
+        self.hover_y = None
+        self.hover_info_var.set("Move cursor over image")
+        self.hover_swatch.configure(bg="#808080")
+
+    def _on_click(self, event):
+        """Select color at clicked point"""
+        coords = self._canvas_to_frame(event.x, event.y)
+        if coords is None:
+            return
+
+        self._update_selection_from_coords(coords[0], coords[1])
+
+    def _update_selection_from_coords(self, x, y):
+        """Update selection based on coordinates"""
+        self.selected_x = x
+        self.selected_y = y
+
+        # Get color from current frame
+        with self.app.frame_lock:
+            frame = self.app.latest_frame_bgr
+            if frame is not None and 0 <= y < frame.shape[0] and 0 <= x < frame.shape[1]:
+                b, g, r = frame[y, x]
+                self.selected_rgb = (int(r), int(g), int(b))
+                hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                self.selected_swatch.configure(bg=hex_color)
+                self.selected_info_var.set(f"({x}, {y})\nRGB: {r}, {g}, {b}")
+                self.info_var.set(f"Selected: ({x}, {y}) RGB({r}, {g}, {b}) - Click Confirm to use")
+
+    def _clear(self):
+        """Clear the current selection"""
+        self.selected_x = None
+        self.selected_y = None
+        self.selected_rgb = None
+        self.selected_swatch.configure(bg="#808080")
+        self.selected_info_var.set("Click to select")
+        self.info_var.set("Click on camera to pick a color")
+
+    def _confirm(self):
+        """Confirm selection and close"""
+        if self.selected_x is not None and self.selected_y is not None and self.selected_rgb is not None:
+            self.result = (self.selected_x, self.selected_y, *self.selected_rgb)
+            if self.on_select_callback:
+                self.on_select_callback(self.selected_x, self.selected_y, *self.selected_rgb)
+            self._close_window()
+        else:
+            self.info_var.set("Please select a color first")
+
+    def _cancel(self):
+        """Cancel and close"""
+        self.result = None
+        self._close_window()
+
+    def _close_window(self):
+        """Close the window and call the close callback"""
+        self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()

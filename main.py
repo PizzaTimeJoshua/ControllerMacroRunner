@@ -35,6 +35,7 @@ from camera import (
     scale_image_to_fit,
     CameraPopoutWindow,
     RegionSelectorWindow,
+    ColorPickerWindow,
 )
 from audio import (
     PYAUDIO_AVAILABLE,
@@ -1738,7 +1739,8 @@ class App:
             self.root, self.engine.registry,
             initial_cmd=None, title="Add Command",
             test_callback=self._dialog_test_callback,
-            select_area_callback=self._open_region_selector
+            select_area_callback=self._open_region_selector,
+            select_color_callback=self._open_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1770,7 +1772,8 @@ class App:
             self.root, self.engine.registry,
             initial_cmd=initial, title="Edit Command",
             test_callback=self._dialog_test_callback,
-            select_area_callback=self._open_region_selector
+            select_area_callback=self._open_region_selector,
+            select_color_callback=self._open_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1841,13 +1844,17 @@ class App:
             return self.engine.vars.get(v[1:], None)
         return v
 
-    def _open_region_selector(self, initial_region, on_select_callback):
+    def _open_region_selector(self, initial_region, on_select_callback, on_close_callback=None):
         """
         Open the region selector window for selecting an area on the camera.
 
         Args:
             initial_region: Optional tuple (x, y, width, height) to show initially
             on_select_callback: Callback with (x, y, width, height) when confirmed
+            on_close_callback: Optional callback called when window closes (for any reason)
+
+        Returns:
+            True if the selector window was opened, False otherwise
         """
         if not self.cam_running:
             messagebox.showwarning(
@@ -1855,10 +1862,36 @@ class App:
                 "Please start the camera first to select a region.",
                 parent=self.root
             )
-            return
+            return False
 
         # Open the region selector window
-        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region)
+        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region, on_close_callback=on_close_callback)
+        return True
+
+    def _open_color_picker(self, initial_x, initial_y, on_select_callback, on_close_callback=None):
+        """
+        Open the color picker window for selecting a color from the camera.
+
+        Args:
+            initial_x: Optional initial X coordinate
+            initial_y: Optional initial Y coordinate
+            on_select_callback: Callback with (x, y, r, g, b) when confirmed
+            on_close_callback: Optional callback called when window closes (for any reason)
+
+        Returns:
+            True if the picker window was opened, False otherwise
+        """
+        if not self.cam_running:
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to pick a color.",
+                parent=self.root
+            )
+            return False
+
+        # Open the color picker window
+        ColorPickerWindow(self, on_select_callback, initial_x=initial_x, initial_y=initial_y, on_close_callback=on_close_callback)
+        return True
 
     def test_command_dialog(self, cmd_obj):
         """
