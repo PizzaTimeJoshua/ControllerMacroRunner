@@ -873,6 +873,12 @@ class ScriptEngine:
             out = c.get("out", "text")
             return f"ReadText ({x},{y}) {w}x{h} -> ${out}"
 
+        def fmt_contains(c):
+            needle = c.get("needle", "")
+            haystack = c.get("haystack", "")
+            out = c.get("out", "found")
+            return f"Contains {needle!r} in {haystack!r} -> ${out}"
+
         # ---- execution fns
         def cmd_wait(ctx, c):
             ms_raw = c.get("ms", 0)
@@ -1119,6 +1125,24 @@ class ScriptEngine:
             # Ensure buttons are released at the end
             backend.set_buttons([])
 
+        def cmd_contains(ctx, c):
+            """
+            Check if a value is contained in another value (like Python's 'in' operator).
+            Works with strings (substring check) and lists (membership check).
+            Stores boolean result in the output variable.
+            """
+            needle = resolve_value(ctx, c.get("needle"))
+            haystack = resolve_value(ctx, c.get("haystack"))
+            out = c.get("out", "found")
+
+            try:
+                result = needle in haystack
+            except TypeError:
+                # If 'in' operator fails (e.g., incompatible types), return False
+                result = False
+
+            ctx["vars"][out] = result
+
         def cmd_type_name(ctx, c):
             """
             Types a name on Pokemon FRLG/RSE naming screens.
@@ -1358,6 +1382,19 @@ class ScriptEngine:
                 order=20
             ),
             CommandSpec(
+                "contains", ["needle", "haystack", "out"], cmd_contains,
+                doc="Check if needle is contained in haystack (like Python's 'in'). Works with strings (substring) and lists (membership). Stores boolean in $out.",
+                arg_schema=[
+                    {"key": "needle", "type": "json", "default": "abc", "help": "Value to search for (literal or $var)"},
+                    {"key": "haystack", "type": "json", "default": "abcdef", "help": "Container to search in (literal or $var)"},
+                    {"key": "out", "type": "str", "default": "found", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_contains,
+                group="Variables",
+                order=30,
+                exportable=True
+            ),
+            CommandSpec(
                 "if", ["left", "op", "right"], cmd_if,
                 doc="Conditional block. If condition is false, skip to matching end_if.",
                 arg_schema=cond_schema,
@@ -1457,7 +1494,9 @@ class ScriptEngine:
                 ],
                 format_fn=fmt_tap_touch,
                 group="3DS",
-                order=10
+                order=10,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
             ),
             CommandSpec(
                 "type_name",

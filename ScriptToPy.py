@@ -43,7 +43,7 @@ def export_script_to_python(self):
 
     # Structured export cannot represent goto/label nicely.
     # Vision/camera commands are not included in export runtime.
-    disallow_cmds = {"find_color", "label", "goto"}
+    disallow_cmds = {"find_color", "read_text", "tap_touch", "type_name", "label", "goto"}
 
     for i, c in enumerate(commands):
         cmd = c.get("cmd")
@@ -86,6 +86,15 @@ def export_script_to_python(self):
                 v = c.get(side)
                 if isinstance(v, str) and v.startswith("$"):
                     used_vars.add(v[1:])
+
+        if cmd == "contains":
+            for key in ("needle", "haystack"):
+                v = c.get(key)
+                if isinstance(v, str) and v.startswith("$"):
+                    used_vars.add(v[1:])
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
 
         if cmd == "run_python":
             args = c.get("args", [])
@@ -207,6 +216,16 @@ def export_script_to_python(self):
             sv = c.get("var")
             pyv = var_map.get(sv, _py_ident(sv))
             emit(f"{pyv} += {op_to_py(c.get('value', 0))}")
+
+        elif cmd == "contains":
+            needle = op_to_py(c.get("needle"))
+            haystack = op_to_py(c.get("haystack"))
+            outv = (c.get("out") or "found").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+            emit(f"try:")
+            emit(f"    {pyv} = {needle} in {haystack}")
+            emit(f"except TypeError:")
+            emit(f"    {pyv} = False")
 
         elif cmd == "if":
             left = op_to_py(c.get("left"))
