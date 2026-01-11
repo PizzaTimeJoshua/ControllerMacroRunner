@@ -1,6 +1,6 @@
 import time
 import base64
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 import numpy as np
 import threading
 import json
@@ -11,6 +11,7 @@ import ast
 import math
 import re
 from tkinter import messagebox
+import cv2
 
 # Optional OCR support via pytesseract
 try:
@@ -285,18 +286,6 @@ def frame_to_json_payload(frame_bgr: np.ndarray):
 # ----------------------------
 
 def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, invert: bool = False) -> Image.Image:
-    """
-    Preprocess an image region for better OCR on pixel fonts.
-
-    Args:
-        img: PIL Image (RGB or RGBA)
-        scale: Upscale factor (higher = better for small pixel fonts, default 4)
-        threshold: If > 0, apply binary thresholding (0-255). 0 = auto/no threshold.
-        invert: If True, invert colors (useful for light text on dark background)
-
-    Returns:
-        Preprocessed PIL Image ready for OCR
-    """
     # Convert to RGB if needed
     if img.mode != 'RGB':
         img = img.convert('RGB')
@@ -305,19 +294,27 @@ def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, inv
     w, h = img.size
     img = img.resize((w * scale, h * scale), Image.Resampling.NEAREST)
 
-    # Convert to grayscale
-    img = img.convert('L')
-
     # Invert if needed (light text on dark background)
     if invert:
         img = ImageOps.invert(img)
 
-    # Apply threshold for binary image (helps with pixel fonts)
-    if threshold > 0:
-        img = img.point(lambda x: 255 if x > threshold else 0, mode='1')
-        img = img.convert('L')  # Convert back to grayscale for tesseract
+    image = img
 
-    return img
+    opencv_image = np.array(image.convert('L'))
+    
+    # Apply Gaussian blur
+    blurred_image = cv2.GaussianBlur(opencv_image, (5, 5), 0)
+    
+    # Apply binary thresholding
+    _, binary_thresh = cv2.threshold(blurred_image, 128, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Convert back to PIL Image
+    binary_thresh_pil = Image.fromarray(binary_thresh)
+
+    img1 = ImageEnhance.Contrast(ImageEnhance.Brightness(binary_thresh_pil).enhance(2)).enhance(2)
+    img2 = binary_thresh_pil.filter(ImageFilter.BLUR),
+
+    return img1,img2
 
 
 def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
@@ -361,19 +358,42 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
     img = Image.fromarray(region_rgb)
 
     # Preprocess for OCR
-    img = preprocess_for_ocr(img, scale=scale, threshold=threshold, invert=invert)
+    img, img2 = preprocess_for_ocr(img, scale=scale, threshold=threshold, invert=invert)
 
     # Build tesseract config
     config_parts = [f"--psm {psm}"]
+    numeric = False
+    if whitelist == "0123456789":
+        numeric = True
     if whitelist:
-        config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
+        if numeric:
+            config_parts.append(f"-c tessedit_char_whitelist=0123456789BSZOI")
+        else:
+            config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
 
     config = " ".join(config_parts)
 
     # Run OCR
     try:
-        text = pytesseract.image_to_string(img, config=config)
-        return text.strip()
+        text = pytesseract.image_to_string(img, config=config).strip()
+        if numeric:
+            text = text.replace('O','0')
+            text = text.replace('I','1')
+            text = text.replace('S','5')
+            text = text.replace('Z','2')
+            text = text.replace('B','8')
+            result = int(text) if text.isdigit() else -1
+            if result == -1:
+                text = pytesseract.image_to_string(img2, config=config).strip()
+                text = text.replace('O','0')
+                text = text.replace('I','1')
+                text = text.replace('S','5')
+                text = text.replace('Z','2')
+                text = text.replace('B','8')
+                result = int(text) if text.isdigit() else -1
+        else:
+            result = text
+        return result
     except Exception as e:
         raise RuntimeError(f"OCR failed: {e}")
 
