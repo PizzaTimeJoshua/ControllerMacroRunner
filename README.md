@@ -261,6 +261,20 @@ Scripts are JSON arrays of command objects:
 {"cmd":"add","var":"counter","value":1}
 ```
 
+- Contains (membership test like Python's `in` operator):
+```json
+{"cmd":"contains","needle":"abc","haystack":"abcdefgh","out":"found"}
+```
+  Works with:
+  - **Strings**: checks if needle is a substring of haystack
+  - **Lists**: checks if needle is an element in haystack
+
+  Example with variables:
+```json
+{"cmd":"set","var":"my_list","value":["apple","banana","cherry"]}
+{"cmd":"contains","needle":"banana","haystack":"$my_list","out":"found"}
+```
+  Result: `$found` will be `true`
 
 To reference a variable inside a condition or args, use `$name` (string):
 
@@ -357,17 +371,18 @@ Scripts can be exported to standalone Python files for distribution or direct ex
 - ✅ `wait` - Time delays
 - ✅ `press` - Button presses
 - ✅ `hold` - Button holds
-- ✅ `mash` - Button mashing (NEW)
-- ✅ `set`, `add` - Variable operations
+- ✅ `mash` - Button mashing
+- ✅ `set`, `add`, `contains` - Variable operations
 - ✅ `if/end_if` - Conditional blocks
 - ✅ `while/end_while` - Loop blocks
 - ✅ `run_python` - Python script execution
 
 **Limitations:**
-- ❌ `find_color` - Camera frame processing not included in export
+- ❌ `find_color`, `read_text` - Camera frame processing not included in export
 - ❌ `label`, `goto` - Not compatible with structured Python export
 - ❌ `$frame` references - Camera functionality excluded
 - ❌ `tap_touch` - 3DS-specific command not exported
+- ❌ `type_name` - Complex keyboard navigation not supported
 
 **Benefits of Python Export:**
 - **No timing delays** - Runs natively without engine overhead

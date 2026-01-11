@@ -466,6 +466,40 @@ pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner \
 
 Result stored in `$match` (boolean true/false)
 
+### How to: Use contains Command
+
+```json
+{
+  "cmd": "contains",
+  "needle": "abc",         # Value to search for
+  "haystack": "abcdefgh",  # Container to search in
+  "out": "found"           # Output variable name
+}
+```
+
+Result stored in `$found` (boolean true/false)
+
+**Works with strings (substring check):**
+```json
+{"cmd": "contains", "needle": "world", "haystack": "hello world", "out": "found"}
+```
+Result: `$found` = `true`
+
+**Works with lists (membership check):**
+```json
+{"cmd": "set", "var": "items", "value": ["apple", "banana", "cherry"]}
+{"cmd": "contains", "needle": "banana", "haystack": "$items", "out": "has_banana"}
+```
+Result: `$has_banana` = `true`
+
+**Use with variables:**
+```json
+{"cmd": "set", "var": "search", "value": "target"}
+{"cmd": "set", "var": "text", "value": "find the target here"}
+{"cmd": "contains", "needle": "$search", "haystack": "$text", "out": "matched"}
+```
+Result: `$matched` = `true`
+
 ### How to: Use mash Command
 
 ```json
@@ -542,15 +576,16 @@ Use `ScriptToPy.py` to convert compatible scripts to standalone Python files:
 
 **Supported Commands:**
 - ✅ `comment`, `wait`, `press`, `hold`, `mash`
-- ✅ `set`, `add` (variables)
+- ✅ `set`, `add`, `contains` (variables)
 - ✅ `if/end_if`, `while/end_while` (control flow)
 - ✅ `run_python` (Python script execution)
 
 **Unsupported Commands (Export Limitations):**
-- ❌ `find_color` - Camera/vision commands (no camera runtime in export)
+- ❌ `find_color`, `read_text` - Camera/vision commands (no camera runtime in export)
 - ❌ `label`, `goto` - Not compatible with structured Python export
 - ❌ `$frame` references - Camera frame payload not supported
 - ❌ `tap_touch` - 3DS-specific command
+- ❌ `type_name` - Complex keyboard navigation not supported
 
 **Benefits:**
 - **No timing delays** - Direct execution without engine overhead
@@ -655,6 +690,7 @@ Edit file with guessed content
 | `mash` | Rapidly mash buttons | Yes | `buttons` (list), `duration_ms`, `hold_ms` (default 25), `wait_ms` (default 25) |
 | `set` | Set variable | Yes | `var`, `value` |
 | `add` | Add to variable | Yes | `var`, `value` |
+| `contains` | Membership test (like Python `in`) | Yes | `needle`, `haystack`, `out` |
 | `label` | Define jump target | No | `name` |
 | `goto` | Jump to label | No | `label` |
 | `if` | Conditional block start | Yes | `left`, `op`, `right` |
@@ -662,8 +698,10 @@ Edit file with guessed content
 | `while` | Loop block start | Yes | `left`, `op`, `right` |
 | `end_while` | Loop block end | Yes | - |
 | `find_color` | Pixel color detection | No | `x`, `y`, `rgb`, `tol`, `out` |
+| `read_text` | OCR text from camera | No | `x`, `y`, `width`, `height`, `out` |
 | `run_python` | Execute Python script | Yes | `file`, `args`, `out` |
-| `tap_touch` | 3DS touchscreen tap | No | `x`, `y`, `ms` |
+| `tap_touch` | 3DS touchscreen tap | No | `x`, `y`, `down_time`, `settle` |
+| `type_name` | Pokemon name entry | No | `name`, `confirm` |
 
 **Operators for if/while**: `==`, `!=`, `<`, `<=`, `>`, `>=`
 
@@ -752,5 +790,5 @@ Recent commits:
 
 ---
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-11*
 *This document is maintained for AI assistants working with the ControllerMacroRunner codebase.*
