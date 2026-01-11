@@ -1139,7 +1139,7 @@ class ScriptEngine:
                     {"key": "name", "type": "str", "default": "Red", "help": "The name to type (supports uppercase, lowercase, numbers, and some symbols)"},
                     {"key": "confirm", "type": "bool", "default": True, "help": "Press A after Start to confirm the name"},
                     {"key": "move_delay_ms", "type": "int", "default": 200, "help": "Delay after each D-pad move (ms)"},
-                    {"key": "select_delay_ms", "type": "int", "default": 600, "help": "Delay after Select to switch pages (ms)"},
+                    {"key": "select_delay_ms", "type": "int", "default": 600, "help": "Delay after Select to switch pages (ms) Only adjust if overclocking gamespeed"},
                     {"key": "press_delay_ms", "type": "int", "default": 400, "help": "Delay after pressing A to select a letter (ms)"},
                     {"key": "button_hold_ms", "type": "int", "default": 50, "help": "How long to hold each button press (ms)"},
                 ],
