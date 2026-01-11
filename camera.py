@@ -246,3 +246,253 @@ class CameraPopoutWindow:
             self.window.destroy()
         except:
             pass
+
+
+class RegionSelectorWindow:
+    """
+    Window for selecting a region on the camera feed.
+    User clicks and drags to draw a rectangle, then confirms the selection.
+    """
+
+    def __init__(self, app, on_select_callback, initial_region=None):
+        """
+        Args:
+            app: Main application instance (for frame access)
+            on_select_callback: Called with (x, y, width, height) when confirmed
+            initial_region: Optional tuple (x, y, width, height) to show initially
+        """
+        self.app = app
+        self.on_select_callback = on_select_callback
+        self.result = None
+
+        # Selection state
+        self.start_x = None
+        self.start_y = None
+        self.current_rect = initial_region  # (x, y, w, h) in frame coords
+        self.dragging = False
+
+        # Create window
+        self.window = tk.Toplevel(app.root)
+        self.window.title("Select Region - Click and drag to select area")
+        self.window.geometry("800x600")
+        self.window.configure(bg="black")
+        self.window.transient(app.root)
+        self.window.grab_set()
+
+        # Create canvas for video and drawing
+        self.canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Bottom bar with info and buttons
+        bottom = ttk.Frame(self.window)
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=6, padx=6)
+
+        self.info_var = tk.StringVar(value="Click and drag to select region")
+        ttk.Label(bottom, textvariable=self.info_var).pack(side=tk.LEFT)
+
+        ttk.Button(bottom, text="Cancel", command=self._cancel).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bottom, text="Confirm", command=self._confirm).pack(side=tk.RIGHT)
+        ttk.Button(bottom, text="Clear", command=self._clear).pack(side=tk.RIGHT, padx=(0, 6))
+
+        # Bind mouse events
+        self.canvas.bind("<ButtonPress-1>", self._on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self._on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_up)
+        self.canvas.bind("<Motion>", self._on_mouse_move)
+
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        # Display size tracking
+        self._disp_img_w = 0
+        self._disp_img_h = 0
+        self._img_offset_x = 0
+        self._img_offset_y = 0
+
+        # Start frame updates
+        self._update_loop()
+
+    def _update_loop(self):
+        """Update the display with current frame and selection overlay"""
+        if not self.window.winfo_exists():
+            return
+
+        self._update_frame()
+        self.window.after(30, self._update_loop)
+
+    def _update_frame(self):
+        """Draw current frame with selection rectangle overlay"""
+        with self.app.frame_lock:
+            frame = self.app.latest_frame_bgr
+            if frame is None:
+                return
+            frame = frame.copy()
+
+        # Convert BGR to RGB
+        rgb = frame[:, :, ::-1]
+        img = Image.fromarray(rgb)
+
+        # Get canvas size
+        self.canvas.update_idletasks()
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+
+        if canvas_w <= 1 or canvas_h <= 1:
+            return
+
+        # Scale image to fit
+        scaled_img = scale_image_to_fit(img, canvas_w, canvas_h)
+        scaled_w, scaled_h = scaled_img.size
+
+        # Calculate offset for centering
+        self._img_offset_x = (canvas_w - scaled_w) // 2
+        self._img_offset_y = (canvas_h - scaled_h) // 2
+        self._disp_img_w = scaled_w
+        self._disp_img_h = scaled_h
+
+        # Store frame dimensions for coordinate conversion
+        self._frame_w = frame.shape[1]
+        self._frame_h = frame.shape[0]
+
+        # Convert to PhotoImage
+        tk_img = ImageTk.PhotoImage(scaled_img)
+        self.canvas.imgtk = tk_img
+
+        # Clear and redraw
+        self.canvas.delete("all")
+        self.canvas.create_image(
+            self._img_offset_x, self._img_offset_y,
+            anchor="nw", image=tk_img
+        )
+
+        # Draw selection rectangle if we have one
+        if self.current_rect:
+            x, y, w, h = self.current_rect
+            # Convert frame coords to canvas coords
+            cx1, cy1 = self._frame_to_canvas(x, y)
+            cx2, cy2 = self._frame_to_canvas(x + w, y + h)
+            self.canvas.create_rectangle(
+                cx1, cy1, cx2, cy2,
+                outline="#00ff00", width=2, dash=(4, 4)
+            )
+            # Draw corner handles
+            handle_size = 6
+            for hx, hy in [(cx1, cy1), (cx2, cy1), (cx1, cy2), (cx2, cy2)]:
+                self.canvas.create_rectangle(
+                    hx - handle_size, hy - handle_size,
+                    hx + handle_size, hy + handle_size,
+                    fill="#00ff00", outline="#ffffff"
+                )
+
+    def _frame_to_canvas(self, fx, fy):
+        """Convert frame coordinates to canvas coordinates"""
+        if self._disp_img_w <= 0 or self._frame_w <= 0:
+            return fx, fy
+        cx = self._img_offset_x + int(fx * self._disp_img_w / self._frame_w)
+        cy = self._img_offset_y + int(fy * self._disp_img_h / self._frame_h)
+        return cx, cy
+
+    def _canvas_to_frame(self, cx, cy):
+        """Convert canvas coordinates to frame coordinates"""
+        if self._disp_img_w <= 0 or self._frame_w <= 0:
+            return None
+
+        # Remove offset
+        ix = cx - self._img_offset_x
+        iy = cy - self._img_offset_y
+
+        # Check if within image bounds
+        if not (0 <= ix < self._disp_img_w and 0 <= iy < self._disp_img_h):
+            return None
+
+        # Scale to frame coordinates
+        fx = int(ix * self._frame_w / self._disp_img_w)
+        fy = int(iy * self._frame_h / self._disp_img_h)
+
+        # Clamp to frame bounds
+        fx = max(0, min(fx, self._frame_w - 1))
+        fy = max(0, min(fy, self._frame_h - 1))
+
+        return fx, fy
+
+    def _on_mouse_down(self, event):
+        """Start rectangle selection"""
+        coords = self._canvas_to_frame(event.x, event.y)
+        if coords is None:
+            return
+
+        self.start_x, self.start_y = coords
+        self.dragging = True
+        self.current_rect = None
+
+    def _on_mouse_drag(self, event):
+        """Update rectangle during drag"""
+        if not self.dragging or self.start_x is None:
+            return
+
+        coords = self._canvas_to_frame(event.x, event.y)
+        if coords is None:
+            return
+
+        end_x, end_y = coords
+
+        # Calculate rectangle (handle any drag direction)
+        x = min(self.start_x, end_x)
+        y = min(self.start_y, end_y)
+        w = abs(end_x - self.start_x)
+        h = abs(end_y - self.start_y)
+
+        # Minimum size
+        w = max(1, w)
+        h = max(1, h)
+
+        self.current_rect = (x, y, w, h)
+        self.info_var.set(f"Region: ({x}, {y}) {w}x{h}")
+
+    def _on_mouse_up(self, event):
+        """Finish rectangle selection"""
+        if self.dragging:
+            self._on_mouse_drag(event)  # Finalize position
+            self.dragging = False
+
+            if self.current_rect and self.current_rect[2] > 0 and self.current_rect[3] > 0:
+                x, y, w, h = self.current_rect
+                self.info_var.set(f"Region: ({x}, {y}) {w}x{h} - Click Confirm to use")
+
+    def _on_mouse_move(self, event):
+        """Show coordinates while hovering"""
+        if self.dragging:
+            return
+
+        coords = self._canvas_to_frame(event.x, event.y)
+        if coords is None:
+            if not self.current_rect:
+                self.info_var.set("Click and drag to select region")
+            return
+
+        fx, fy = coords
+        if self.current_rect:
+            x, y, w, h = self.current_rect
+            self.info_var.set(f"Region: ({x}, {y}) {w}x{h} | Cursor: ({fx}, {fy})")
+        else:
+            self.info_var.set(f"Cursor: ({fx}, {fy}) - Click and drag to select")
+
+    def _clear(self):
+        """Clear the current selection"""
+        self.current_rect = None
+        self.info_var.set("Click and drag to select region")
+
+    def _confirm(self):
+        """Confirm selection and close"""
+        if self.current_rect and self.current_rect[2] > 0 and self.current_rect[3] > 0:
+            self.result = self.current_rect
+            if self.on_select_callback:
+                self.on_select_callback(*self.current_rect)
+            self.window.destroy()
+        else:
+            self.info_var.set("Please select a region first")
+
+    def _cancel(self):
+        """Cancel and close"""
+        self.result = None
+        self.window.destroy()

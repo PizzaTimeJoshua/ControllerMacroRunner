@@ -13,12 +13,14 @@ from utils import list_python_files
 class CommandEditorDialog(tk.Toplevel):
     """Dialog for editing script commands with schema-driven fields."""
 
-    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command", test_callback=None):
+    def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",
+                 test_callback=None, select_area_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
         self.result = None
         self.test_callback = test_callback
+        self.select_area_callback = select_area_callback  # Callback for region selection
 
         self.title(title)
         self.transient(parent)
@@ -212,6 +214,25 @@ class CommandEditorDialog(tk.Toplevel):
             ttk.Label(self.fields_frame, text=help_text, foreground="gray").grid(row=r, column=2, sticky="w", padx=(8, 0))
 
         self.fields_frame.columnconfigure(1, weight=1)
+
+        # Add "Select Area" button for read_text command
+        if name == "read_text" and self.select_area_callback:
+            # Add button row after all fields
+            next_row = len(spec.arg_schema)
+            select_frame = ttk.Frame(self.fields_frame)
+            select_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+
+            ttk.Button(
+                select_frame, text="Select Area on Camera",
+                command=self._open_region_selector
+            ).pack(side="left")
+
+            ttk.Label(
+                select_frame,
+                text="Click to visually select region on camera feed",
+                foreground="gray"
+            ).pack(side="left", padx=(10, 0))
+
         # Enable Test only if provided and command is supported
         if self.test_callback is None or spec.test == False:
             self.test_btn.pack_forget()
@@ -320,3 +341,42 @@ class CommandEditorDialog(tk.Toplevel):
             messagebox.showinfo(title, msg, parent=self)
         except Exception as e:
             messagebox.showerror("Test error", str(e), parent=self)
+
+    def _open_region_selector(self):
+        """Open the region selector for read_text command."""
+        if not self.select_area_callback:
+            return
+
+        # Get current values to use as initial selection
+        initial_region = None
+        try:
+            x = int(self.field_vars.get("x", tk.StringVar(value="0")).get())
+            y = int(self.field_vars.get("y", tk.StringVar(value="0")).get())
+            w = int(self.field_vars.get("width", tk.StringVar(value="100")).get())
+            h = int(self.field_vars.get("height", tk.StringVar(value="20")).get())
+            if w > 0 and h > 0:
+                initial_region = (x, y, w, h)
+        except (ValueError, TypeError):
+            pass
+
+        # Release grab temporarily so the selector window can work
+        self.grab_release()
+
+        # Call the callback to open the selector
+        self.select_area_callback(initial_region, self._on_region_selected)
+
+    def _on_region_selected(self, x, y, width, height):
+        """Callback when a region is selected."""
+        # Update the field values
+        if "x" in self.field_vars:
+            self.field_vars["x"].set(str(x))
+        if "y" in self.field_vars:
+            self.field_vars["y"].set(str(y))
+        if "width" in self.field_vars:
+            self.field_vars["width"].set(str(width))
+        if "height" in self.field_vars:
+            self.field_vars["height"].set(str(height))
+
+        # Re-grab focus
+        self.grab_set()
+        self.focus_set()

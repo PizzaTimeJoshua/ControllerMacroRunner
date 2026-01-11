@@ -34,6 +34,7 @@ from camera import (
     list_dshow_video_devices,
     scale_image_to_fit,
     CameraPopoutWindow,
+    RegionSelectorWindow,
 )
 from audio import (
     PYAUDIO_AVAILABLE,
@@ -1733,7 +1734,12 @@ class App:
         idx = self._get_selected_index()
         insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
 
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=None, title="Add Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(
+            self.root, self.engine.registry,
+            initial_cmd=None, title="Add Command",
+            test_callback=self._dialog_test_callback,
+            select_area_callback=self._open_region_selector
+        )
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1760,7 +1766,12 @@ class App:
             return
 
         initial = self.engine.commands[idx]
-        dlg = CommandEditorDialog(self.root, self.engine.registry, initial_cmd=initial, title="Edit Command", test_callback=self._dialog_test_callback)
+        dlg = CommandEditorDialog(
+            self.root, self.engine.registry,
+            initial_cmd=initial, title="Edit Command",
+            test_callback=self._dialog_test_callback,
+            select_area_callback=self._open_region_selector
+        )
         self.root.wait_window(dlg)
         if dlg.result is None:
             return
@@ -1829,6 +1840,25 @@ class App:
         if isinstance(v, str) and v.startswith("$"):
             return self.engine.vars.get(v[1:], None)
         return v
+
+    def _open_region_selector(self, initial_region, on_select_callback):
+        """
+        Open the region selector window for selecting an area on the camera.
+
+        Args:
+            initial_region: Optional tuple (x, y, width, height) to show initially
+            on_select_callback: Callback with (x, y, width, height) when confirmed
+        """
+        if not self.cam_running:
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to select a region.",
+                parent=self.root
+            )
+            return
+
+        # Open the region selector window
+        RegionSelectorWindow(self, on_select_callback, initial_region=initial_region)
 
     def test_command_dialog(self, cmd_obj):
         """
