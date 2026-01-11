@@ -12,74 +12,32 @@ import math
 import re
 from tkinter import messagebox
 
-#Unimplemented Type Name Command
-name_page_upper =[
+# ----------------------------
+# Pokemon Name Typer Keyboard Layouts
+# Compatible with Pokemon FRLG and RSE naming screens
+# ----------------------------
+NAME_PAGE_UPPER = [
     'A','B','C','D','E','F',' ','.','next',
     'G','H','I','J','K','L',' ',',','back',
     'M','N','O','P','Q','R','S',' ','back',
     'T','U','V','W','X','Y','Z',' ','OK'
 ]
-name_page_lower =[
+NAME_PAGE_LOWER = [
     'a','b','c','d','e','f',' ','.','next',
     'g','h','i','j','k','l',' ',',','back',
     'm','n','o','p','q','r','s',' ','back',
     't','u','v','w','x','y','z',' ','OK'
 ]
-name_page_other =[
+NAME_PAGE_OTHER = [
     '0','1','2','3','4',' ','next',
     '5','6','7','8','9',' ','back',
     '!','?','♂','♀','/','-','back',
-    '…','“','”','‘','’',' ','OK'
+    '…','"','"',''',''',' ','OK'
 ]
-def type_name(name = "Red",confirm=True): # Compatibible with Pokemon FRLG and RSE naming.
-    current_position = [0,0]
-    name_pages = [name_page_upper,name_page_lower,name_page_other]
-    current_page = 0
-    current_page_width = 9
-    for letter in name:
-        while letter not in name_pages[current_page]:
-            cmd_press('Select')
-            time.sleep(0.6)
-            current_page = (current_page + 1) % (len(name_pages))
-            new_current_page_width = 6 if name_pages[current_page]==name_page_other else 9
-            if current_position[0]==(current_page_width-1):
-                current_position[0] = new_current_page_width
-                current_page_width = new_current_page_width
-            else:
-                current_position[0] = min(current_position[0] , new_current_page_width-2)
-            
-        # Locate letter
-        pos = name_pages[current_page].index(letter)
-        posx = pos % current_page_width
-        posy = pos // current_page_width
-        while current_position[0] != posx:
-            if posx > current_position[0]: #move right
-                cmd_press('Right')
-                current_position[0] = current_position[0]+1
-                time.sleep(0.2)
-            if posx < current_position[0]: #move left
-                cmd_press('Left')
-                current_position[0] = current_position[0]-1
-                time.sleep(0.2)
 
-
-        while current_position[1] != posy:
-            if posy > current_position[1]: #move down
-                cmd_press('Down')
-                current_position[1] = current_position[1]+1
-                time.sleep(0.2)
-            if posy < current_position[1]: #move up
-                cmd_press('Up')
-                current_position[1] = current_position[1]-1
-                time.sleep(0.2)
-        cmd_press('A')
-        time.sleep(0.4)
-    
-    cmd_press('Start')
-    time.sleep(0.2)
-    if confirm:
-        cmd_press('A')
-        time.sleep(0.2)
+def get_page_width(page):
+    """Returns the column width for a given name page."""
+    return 7 if page is NAME_PAGE_OTHER else 9
 
 # ----------------------------
 # High-Precision Timing Utilities
@@ -634,6 +592,11 @@ class ScriptEngine:
             wait = c.get("wait_ms", 25)
             return f"Mash {', '.join(btns) if btns else '(none)'} for {duration}ms (hold:{hold}ms wait:{wait}ms)"
 
+        def fmt_type_name(c):
+            name = c.get("name", "Red")
+            confirm = c.get("confirm", True)
+            confirm_str = " + confirm" if confirm else ""
+            return f"TypeName \"{name}\"{confirm_str}"
 
         # ---- execution fns
         def cmd_wait(ctx, c):
@@ -849,6 +812,149 @@ class ScriptEngine:
             # Ensure buttons are released at the end
             backend.set_buttons([])
 
+        def cmd_type_name(ctx, c):
+            """
+            Types a name on Pokemon FRLG/RSE naming screens.
+            Navigates the on-screen keyboard using D-pad, Select to switch pages,
+            A to select letters, and Start+A to confirm.
+            """
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+
+            name = str(resolve_value(ctx, c.get("name", "Red")))
+            confirm = bool(resolve_value(ctx, c.get("confirm", True)))
+
+            # Timing settings (in milliseconds, converted to seconds)
+            move_delay_ms = float(resolve_number(ctx, c.get("move_delay_ms", 200)))
+            select_delay_ms = float(resolve_number(ctx, c.get("select_delay_ms", 600)))
+            press_delay_ms = float(resolve_number(ctx, c.get("press_delay_ms", 400)))
+            button_hold_ms = float(resolve_number(ctx, c.get("button_hold_ms", 50)))
+
+            move_delay = move_delay_ms / 1000.0
+            select_delay = select_delay_ms / 1000.0
+            press_delay = press_delay_ms / 1000.0
+            button_hold = button_hold_ms / 1000.0
+
+            name_pages = [NAME_PAGE_UPPER, NAME_PAGE_LOWER, NAME_PAGE_OTHER]
+            current_position = [0, 0]  # [x, y] cursor position
+            current_page = 0
+            current_page_width = get_page_width(name_pages[current_page])
+
+            def press_button(btn):
+                """Press a button with proper timing. Returns True if interrupted."""
+                if ctx["stop"].is_set():
+                    return True
+                backend.set_buttons([btn])
+                if precise_sleep_interruptible(button_hold, ctx["stop"]):
+                    backend.set_buttons([])
+                    return True
+                backend.set_buttons([])
+                return False
+
+            def check_stop():
+                """Returns True if stop was requested."""
+                return ctx["stop"].is_set()
+
+            try:
+                for letter in name:
+                    if check_stop():
+                        break
+
+                    # Check if the letter exists in any page
+                    letter_found = any(letter in page for page in name_pages)
+                    if not letter_found:
+                        # Skip characters that don't exist in the keyboard
+                        continue
+
+                    # Find the page containing this letter
+                    while letter not in name_pages[current_page]:
+                        if check_stop():
+                            break
+
+                        # Press Select to switch pages
+                        if press_button("Select"):
+                            break
+                        if precise_sleep_interruptible(select_delay, ctx["stop"]):
+                            break
+
+                        # Move to next page
+                        current_page = (current_page + 1) % len(name_pages)
+                        new_page_width = get_page_width(name_pages[current_page])
+
+                        # Adjust cursor position when switching pages
+                        # If on rightmost column, stay on rightmost column of new page
+                        if current_position[0] >= current_page_width - 1:
+                            current_position[0] = new_page_width - 1
+                        else:
+                            # Otherwise, clamp to the new page width
+                            # (leave room for the control column on the right)
+                            current_position[0] = min(current_position[0], new_page_width - 2)
+                        current_page_width = new_page_width
+
+                    if check_stop():
+                        break
+
+                    # Locate letter position in the current page
+                    pos = name_pages[current_page].index(letter)
+                    target_x = pos % current_page_width
+                    target_y = pos // current_page_width
+
+                    # Navigate horizontally to the letter
+                    while current_position[0] != target_x:
+                        if check_stop():
+                            break
+                        if target_x > current_position[0]:
+                            if press_button("Right"):
+                                break
+                            current_position[0] += 1
+                        elif target_x < current_position[0]:
+                            if press_button("Left"):
+                                break
+                            current_position[0] -= 1
+                        if precise_sleep_interruptible(move_delay, ctx["stop"]):
+                            break
+
+                    if check_stop():
+                        break
+
+                    # Navigate vertically to the letter
+                    while current_position[1] != target_y:
+                        if check_stop():
+                            break
+                        if target_y > current_position[1]:
+                            if press_button("Down"):
+                                break
+                            current_position[1] += 1
+                        elif target_y < current_position[1]:
+                            if press_button("Up"):
+                                break
+                            current_position[1] -= 1
+                        if precise_sleep_interruptible(move_delay, ctx["stop"]):
+                            break
+
+                    if check_stop():
+                        break
+
+                    # Select the letter
+                    if press_button("A"):
+                        break
+                    if precise_sleep_interruptible(press_delay, ctx["stop"]):
+                        break
+
+                # Press Start to finish name entry
+                if not check_stop():
+                    press_button("Start")
+                    precise_sleep_interruptible(move_delay, ctx["stop"])
+
+                # Confirm if requested
+                if confirm and not check_stop():
+                    press_button("A")
+                    precise_sleep_interruptible(move_delay, ctx["stop"])
+
+            finally:
+                # Ensure buttons are released
+                backend.set_buttons([])
 
 
         cond_schema = [
@@ -1023,6 +1129,25 @@ class ScriptEngine:
                 format_fn=fmt_tap_touch,
                 group="3DS",
                 order=10
+            ),
+            CommandSpec(
+                "type_name",
+                ["name"],
+                cmd_type_name,
+                doc="Type a name on Pokemon FRLG/RSE naming screens. Navigates the on-screen keyboard using D-pad, Select to switch pages, A to select letters, and Start+A to confirm.",
+                arg_schema=[
+                    {"key": "name", "type": "str", "default": "Red", "help": "The name to type (supports uppercase, lowercase, numbers, and some symbols)"},
+                    {"key": "confirm", "type": "bool", "default": True, "help": "Press A after Start to confirm the name"},
+                    {"key": "move_delay_ms", "type": "int", "default": 200, "help": "Delay after each D-pad move (ms)"},
+                    {"key": "select_delay_ms", "type": "int", "default": 600, "help": "Delay after Select to switch pages (ms) Only adjust if overclocking gamespeed"},
+                    {"key": "press_delay_ms", "type": "int", "default": 400, "help": "Delay after pressing A to select a letter (ms)"},
+                    {"key": "button_hold_ms", "type": "int", "default": 50, "help": "How long to hold each button press (ms)"},
+                ],
+                format_fn=fmt_type_name,
+                group="Pokemon",
+                order=10,
+                exportable=False,
+                export_note="Complex keyboard navigation not supported in standalone export."
             ),
 
         ]
