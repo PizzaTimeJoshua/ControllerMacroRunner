@@ -1833,7 +1833,7 @@ class App:
     def test_command_dialog(self, cmd_obj):
         """
         Returns (title, message) for a given cmd_obj.
-        Currently supports: find_color
+        Currently supports: find_color, read_text
         """
         cmd = cmd_obj.get("cmd")
         match cmd:
@@ -1873,14 +1873,77 @@ class App:
                     f"Result (would set ${out}): {ok}"
                 )
                 return ("find_color Test", msg)
+
+            case "read_text":
+                # Check if pytesseract is available
+                if not ScriptEngine.PYTESSERACT_AVAILABLE:
+                    return ("read_text Test",
+                            "pytesseract is not installed.\n\n"
+                            "Install with:\n"
+                            "  pip install pytesseract\n\n"
+                            "Also install Tesseract OCR:\n"
+                            "  Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                            "  Linux: sudo apt install tesseract-ocr")
+
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("read_text Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                width = int(self._resolve_test_value(cmd_obj.get("width", 100)))
+                height = int(self._resolve_test_value(cmd_obj.get("height", 20)))
+                scale = int(self._resolve_test_value(cmd_obj.get("scale", 4)))
+                threshold = int(self._resolve_test_value(cmd_obj.get("threshold", 0)))
+                invert = bool(self._resolve_test_value(cmd_obj.get("invert", False)))
+                psm = int(self._resolve_test_value(cmd_obj.get("psm", 7)))
+                whitelist = str(self._resolve_test_value(cmd_obj.get("whitelist", "")))
+                out = (cmd_obj.get("out") or "text").strip()
+
+                h_frame, w_frame, _ = frame.shape
+
+                # Check bounds
+                if x < 0 or y < 0 or x >= w_frame or y >= h_frame:
+                    return ("read_text Test",
+                            f"Region out of bounds.\n"
+                            f"Top-left: ({x},{y})\n"
+                            f"Frame size: {w_frame}x{h_frame}")
+
+                # Perform OCR
+                try:
+                    text = ScriptEngine.ocr_region(
+                        frame, x, y, width, height,
+                        scale=scale, threshold=threshold, invert=invert,
+                        psm=psm, whitelist=whitelist
+                    )
+                except Exception as e:
+                    return ("read_text Test", f"OCR Error:\n{e}")
+
+                # Build result message
+                msg = (
+                    f"Region: ({x},{y}) {width}x{height}\n"
+                    f"Settings:\n"
+                    f"  Scale: {scale}x\n"
+                    f"  Threshold: {threshold}\n"
+                    f"  Invert: {invert}\n"
+                    f"  PSM: {psm}\n"
+                    f"  Whitelist: '{whitelist}'\n\n"
+                    f"Recognized text (would set ${out}):\n"
+                    f"───────────────────────\n"
+                    f"{text if text else '(empty)'}\n"
+                    f"───────────────────────"
+                )
+                return ("read_text Test", msg)
+
             case _:
                 raise ValueError("No tester implemented for this command.")
 
     def _dialog_test_callback(self, cmd_obj):
-        # Only enable for find_color (for now)
+        # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color":
+            case "find_color" | "read_text":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")

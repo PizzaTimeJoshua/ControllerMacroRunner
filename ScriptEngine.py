@@ -1,6 +1,6 @@
 import time
 import base64
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 import numpy as np
 import threading
 import json
@@ -11,6 +11,13 @@ import ast
 import math
 import re
 from tkinter import messagebox
+
+# Optional OCR support via pytesseract
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
 
 # ----------------------------
 # Pokemon Name Typer Keyboard Layouts
@@ -271,6 +278,104 @@ def frame_to_json_payload(frame_bgr: np.ndarray):
     img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     return {"__frame__": "png_base64", "data_b64": b64}
+
+
+# ----------------------------
+# OCR / Text Recognition Helpers
+# ----------------------------
+
+def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, invert: bool = False) -> Image.Image:
+    """
+    Preprocess an image region for better OCR on pixel fonts.
+
+    Args:
+        img: PIL Image (RGB or RGBA)
+        scale: Upscale factor (higher = better for small pixel fonts, default 4)
+        threshold: If > 0, apply binary thresholding (0-255). 0 = auto/no threshold.
+        invert: If True, invert colors (useful for light text on dark background)
+
+    Returns:
+        Preprocessed PIL Image ready for OCR
+    """
+    # Convert to RGB if needed
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    # Upscale using nearest neighbor to preserve pixel edges
+    w, h = img.size
+    img = img.resize((w * scale, h * scale), Image.Resampling.NEAREST)
+
+    # Convert to grayscale
+    img = img.convert('L')
+
+    # Invert if needed (light text on dark background)
+    if invert:
+        img = ImageOps.invert(img)
+
+    # Apply threshold for binary image (helps with pixel fonts)
+    if threshold > 0:
+        img = img.point(lambda x: 255 if x > threshold else 0, mode='1')
+        img = img.convert('L')  # Convert back to grayscale for tesseract
+
+    return img
+
+
+def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
+               scale: int = 4, threshold: int = 0, invert: bool = False,
+               psm: int = 7, whitelist: str = "") -> str:
+    """
+    Perform OCR on a region of the frame.
+
+    Args:
+        frame_bgr: BGR numpy array from camera
+        x, y: Top-left corner of region
+        width, height: Size of region
+        scale: Upscale factor for preprocessing
+        threshold: Binary threshold (0 = disabled)
+        invert: Invert colors for light-on-dark text
+        psm: Tesseract Page Segmentation Mode (7 = single line, 6 = single block)
+        whitelist: Characters to restrict OCR to (e.g., "0123456789" for numbers only)
+
+    Returns:
+        Recognized text string (stripped)
+    """
+    if not PYTESSERACT_AVAILABLE:
+        raise RuntimeError("pytesseract is not installed. Install with: pip install pytesseract")
+
+    if frame_bgr is None:
+        return ""
+
+    h_frame, w_frame, _ = frame_bgr.shape
+
+    # Clamp region to frame bounds
+    x = max(0, min(x, w_frame - 1))
+    y = max(0, min(y, h_frame - 1))
+    x2 = max(x + 1, min(x + width, w_frame))
+    y2 = max(y + 1, min(y + height, h_frame))
+
+    # Extract region (BGR)
+    region_bgr = frame_bgr[y:y2, x:x2]
+
+    # Convert to RGB PIL Image
+    region_rgb = region_bgr[:, :, ::-1]
+    img = Image.fromarray(region_rgb)
+
+    # Preprocess for OCR
+    img = preprocess_for_ocr(img, scale=scale, threshold=threshold, invert=invert)
+
+    # Build tesseract config
+    config_parts = [f"--psm {psm}"]
+    if whitelist:
+        config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
+
+    config = " ".join(config_parts)
+
+    # Run OCR
+    try:
+        text = pytesseract.image_to_string(img, config=config)
+        return text.strip()
+    except Exception as e:
+        raise RuntimeError(f"OCR failed: {e}")
 
 
 def run_python_main(script_path, args, timeout_s=10):
@@ -598,6 +703,14 @@ class ScriptEngine:
             confirm_str = " + confirm" if confirm else ""
             return f"TypeName \"{name}\"{confirm_str}"
 
+        def fmt_read_text(c):
+            x = c.get("x", 0)
+            y = c.get("y", 0)
+            w = c.get("width", 100)
+            h = c.get("height", 20)
+            out = c.get("out", "text")
+            return f"ReadText ({x},{y}) {w}x{h} -> ${out}"
+
         # ---- execution fns
         def cmd_wait(ctx, c):
             ms_raw = c.get("ms", 0)
@@ -712,6 +825,36 @@ class ScriptEngine:
 
             ok = all(abs(sample_rgb[i] - int(target[i])) <= tol for i in range(3))
             ctx["vars"][out] = ok
+
+        def cmd_read_text(ctx, c):
+            """OCR a region of the camera frame and store the text in a variable."""
+            frame = ctx["get_frame"]()
+            out = c.get("out", "text")
+
+            if frame is None:
+                ctx["vars"][out] = ""
+                return
+
+            x = int(resolve_value(ctx, c.get("x", 0)))
+            y = int(resolve_value(ctx, c.get("y", 0)))
+            width = int(resolve_value(ctx, c.get("width", 100)))
+            height = int(resolve_value(ctx, c.get("height", 20)))
+            scale = int(resolve_value(ctx, c.get("scale", 4)))
+            threshold = int(resolve_value(ctx, c.get("threshold", 0)))
+            invert = bool(resolve_value(ctx, c.get("invert", False)))
+            psm = int(resolve_value(ctx, c.get("psm", 7)))
+            whitelist = str(resolve_value(ctx, c.get("whitelist", "")))
+
+            try:
+                text = ocr_region(
+                    frame, x, y, width, height,
+                    scale=scale, threshold=threshold, invert=invert,
+                    psm=psm, whitelist=whitelist
+                )
+                ctx["vars"][out] = text
+            except Exception as e:
+                ctx["vars"][out] = ""
+                messagebox.showerror(f"read_text error: {e}")
 
         def cmd_comment(ctx, c):
             pass
@@ -1098,6 +1241,28 @@ class ScriptEngine:
                 test = True,
                 exportable=False,
                 export_note="Requires camera frame processing which is unsupported at the moment."
+            ),
+            CommandSpec(
+                "read_text", ["x", "y", "width", "height", "out"], cmd_read_text,
+                doc="OCR a region of the camera frame to extract text. Uses pytesseract with preprocessing for pixel fonts.",
+                arg_schema=[
+                    {"key": "x", "type": "int", "default": 0, "help": "X coordinate (top-left corner)"},
+                    {"key": "y", "type": "int", "default": 0, "help": "Y coordinate (top-left corner)"},
+                    {"key": "width", "type": "int", "default": 100, "help": "Width of region"},
+                    {"key": "height", "type": "int", "default": 20, "help": "Height of region"},
+                    {"key": "out", "type": "str", "default": "text", "help": "Variable name to store result (no $)"},
+                    {"key": "scale", "type": "int", "default": 4, "help": "Upscale factor (higher = better for small fonts)"},
+                    {"key": "threshold", "type": "int", "default": 0, "help": "Binary threshold 0-255 (0 = disabled)"},
+                    {"key": "invert", "type": "bool", "default": False, "help": "Invert colors (for light text on dark)"},
+                    {"key": "psm", "type": "int", "default": 7, "help": "Tesseract PSM (7=single line, 6=block, 13=raw)"},
+                    {"key": "whitelist", "type": "str", "default": "", "help": "Allowed chars (e.g. '0123456789' for numbers)"},
+                ],
+                format_fn=fmt_read_text,
+                group="Image",
+                order=20,
+                test=True,
+                exportable=False,
+                export_note="Requires camera frame and pytesseract which are unsupported in standalone export."
             ),
             CommandSpec(
                 "run_python",
