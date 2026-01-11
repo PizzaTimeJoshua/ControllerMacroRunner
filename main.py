@@ -373,51 +373,10 @@ class App:
 
 
 
-        # Right pane: vertically split Insert/Script/Vars
+        # Right pane: vertically split Script/Vars
         right_split = tk.PanedWindow(right, orient=tk.VERTICAL, sashrelief=tk.RAISED, sashwidth=6, showhandle=False, bd=0)
         right_split.grid(row=0, column=0, sticky="nsew")
         right.rowconfigure(0, weight=1)
-
-        # --- Insert panel
-        insert_box = ttk.LabelFrame(right_split, text="Insert Command")
-        insert_box.columnconfigure(0, weight=1)
-        insert_box.rowconfigure(1, weight=1)
-
-        self.cmd_search_var = tk.StringVar(value="")
-        search_row = ttk.Frame(insert_box)
-        search_row.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
-        search_row.columnconfigure(1, weight=1)
-
-        ttk.Label(search_row, text="Search:").grid(row=0, column=0, sticky="w")
-        search_entry = ttk.Entry(search_row, textvariable=self.cmd_search_var)
-        search_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-
-        self.auto_close_block_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            search_row,
-            text="Auto add end_if/end_while",
-            variable=self.auto_close_block_var
-        ).grid(row=0, column=2, sticky="w", padx=(10, 0))
-
-        # Tree of commands with group headers
-        self.insert_tree = ttk.Treeview(insert_box, columns=("cmd", "desc"), show="tree headings", height=8)
-        self.insert_tree.heading("#0", text="Group")
-        self.insert_tree.heading("cmd", text="Command")
-        self.insert_tree.heading("desc", text="Description")
-        self.insert_tree.column("#0", width=140, stretch=False)
-        self.insert_tree.column("cmd", width=120, stretch=False)
-        self.insert_tree.column("desc", width=420, stretch=True)
-        self.insert_tree.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 6))
-
-        ins_scr = ttk.Scrollbar(insert_box, orient="vertical", command=self.insert_tree.yview)
-        self.insert_tree.configure(yscrollcommand=ins_scr.set)
-        ins_scr.grid(row=1, column=1, sticky="ns", pady=(0, 6))
-
-        # Buttons
-        ins_btnrow = ttk.Frame(insert_box)
-        ins_btnrow.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 6))
-        ttk.Button(ins_btnrow, text="Insert", command=self.insert_selected_command).pack(side="left")
-        ttk.Button(ins_btnrow, text="Insert + Edit", command=self.insert_selected_command_and_edit).pack(side="left", padx=(6, 0))
 
         # --- Script viewer
         script_box = ttk.LabelFrame(right_split, text="Script Commands (right-click menu, double-click edit)")
@@ -471,7 +430,6 @@ class App:
         vsc.grid(row=0, column=1, sticky="ns")
 
         # Add panes
-        right_split.add(insert_box, minsize=170)
         right_split.add(script_box, minsize=220)
         right_split.add(vars_box, minsize=140)
 
@@ -479,14 +437,6 @@ class App:
         self.script_tree.tag_configure("ip", background="#dbeafe")
         self.script_tree.bind("<Button-3>", self._on_script_right_click)
         self.script_tree.bind("<Double-1>", self._on_script_double_click)
-
-        # Insert panel bindings
-        self.cmd_search_var.trace_add("write", lambda *args: self.populate_insert_panel())
-        self.insert_tree.bind("<Double-1>", lambda e: self.insert_selected_command_and_edit())
-        self.insert_tree.bind("<Return>", lambda e: self.insert_selected_command_and_edit())
-
-        # Build initial insert list
-        self.populate_insert_panel()
 
 
     def _normalize_keysym(self, event):
@@ -1551,111 +1501,7 @@ class App:
 
         self.highlight_ip(-1)
 
-    def populate_insert_panel(self):
-        """
-        Builds a grouped command list with group headers as parent nodes.
-        Filters by search text across name/group/doc.
-        """
-        if not hasattr(self, "insert_tree"):
-            return
 
-        search = (self.cmd_search_var.get() or "").strip().lower()
-
-        self.insert_tree.delete(*self.insert_tree.get_children())
-
-        # group -> parent iid
-        group_nodes = {}
-
-        for name, spec in self.engine.ordered_specs():
-            hay = f"{spec.group} {name} {spec.doc}".lower()
-            if search and search not in hay:
-                continue
-
-            if spec.group not in group_nodes:
-                gid = self.insert_tree.insert("", "end", text=spec.group, values=("", ""), open=True)
-                group_nodes[spec.group] = gid
-
-            parent = group_nodes[spec.group]
-            # store command name in iid so we can retrieve easily
-            iid = f"cmd::{name}"
-            self.insert_tree.insert(parent, "end", iid=iid, text="", values=(name, (spec.doc or "")))
-
-        # If there's only one group and one command visible, select it
-        all_cmd_items = []
-        for g in self.insert_tree.get_children(""):
-            for child in self.insert_tree.get_children(g):
-                all_cmd_items.append(child)
-        if all_cmd_items:
-            self.insert_tree.selection_set(all_cmd_items[0])
-            self.insert_tree.see(all_cmd_items[0])
-
-    def insert_selected_command(self):
-        self._insert_selected_command(edit_after=False)
-
-    def insert_selected_command_and_edit(self):
-        self._insert_selected_command(edit_after=True)
-
-    def _insert_selected_command(self, edit_after: bool):
-        if self.engine.running:
-            messagebox.showwarning("Running", "Stop the script before editing.")
-            return
-
-        cmd_name = self._get_selected_insert_command()
-        if not cmd_name:
-            return
-
-        idx = self._get_selected_index()
-        insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
-
-        # Build default command object based on schema defaults
-        spec = self.engine.registry[cmd_name]
-        cmd_obj = {"cmd": cmd_name}
-        for f in spec.arg_schema:
-            k = f["key"]
-            if "default" in f:
-                cmd_obj[k] = f["default"]
-
-        # Insert command
-        self.engine.commands.insert(insert_at, cmd_obj)
-
-        # Auto-insert end markers for blocks
-        if self.auto_close_block_var.get():
-            if cmd_name == "if":
-                self.engine.commands.insert(insert_at + 1, {"cmd": "end_if"})
-            elif cmd_name == "while":
-                self.engine.commands.insert(insert_at + 1, {"cmd": "end_while"})
-
-        # Tolerant rebuild during editing
-        try:
-            self.engine.rebuild_indexes(strict=False)
-        except Exception as e:
-            self.set_status(f"Index warning: {e}")
-
-        self.populate_script_view()
-        self.mark_dirty(True)
-
-        # Select inserted row and optionally open editor
-        self.script_tree.selection_set(str(insert_at))
-        self.script_tree.see(str(insert_at))
-
-        if edit_after:
-            # If we auto-inserted end_if/end_while, edit the opening line
-            self.edit_command()
-
-
-    def _get_selected_insert_command(self):
-        sel = self.insert_tree.selection()
-        if not sel:
-            return None
-        iid = sel[0]
-        if not iid.startswith("cmd::"):
-            # group header selected, try first child
-            kids = self.insert_tree.get_children(iid)
-            if kids:
-                iid = kids[0]
-            else:
-                return None
-        return iid.split("cmd::", 1)[1]
 
 
 
