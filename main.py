@@ -1082,12 +1082,45 @@ class App:
             input_info = self.audio_pyaudio.get_device_info_by_index(input_idx)
             output_info = self.audio_pyaudio.get_device_info_by_index(output_idx)
 
-            # Use common settings
-            sample_rate = int(min(input_info.get('defaultSampleRate', 44100),
-                                  output_info.get('defaultSampleRate', 44100)))
-            channels = min(int(input_info.get('maxInputChannels', 2)),
+            # Determine compatible settings
+            # Try common sample rates in order of preference
+            sample_rates = [48000, 44100, 32000, 24000, 16000, 8000]
+            supported_rate = None
+
+            # Find a sample rate that works for both devices
+            for rate in sample_rates:
+                try:
+                    # Check if this rate is supported by both devices
+                    input_supported = self.audio_pyaudio.is_format_supported(
+                        rate,
+                        input_device=input_idx,
+                        input_channels=min(2, int(input_info.get('maxInputChannels', 2))),
+                        input_format=pyaudio.paInt16
+                    )
+                    output_supported = self.audio_pyaudio.is_format_supported(
+                        rate,
+                        output_device=output_idx,
+                        output_channels=min(2, int(output_info.get('maxOutputChannels', 2))),
+                        output_format=pyaudio.paInt16
+                    )
+                    if input_supported and output_supported:
+                        supported_rate = rate
+                        break
+                except ValueError:
+                    # Format not supported, try next rate
+                    continue
+
+            if supported_rate is None:
+                # Fall back to default rates
+                supported_rate = int(input_info.get('defaultSampleRate', 48000))
+
+            # Use conservative channel count (stereo or less)
+            channels = min(2,
+                          int(input_info.get('maxInputChannels', 2)),
                           int(output_info.get('maxOutputChannels', 2)))
-            chunk = 1024
+
+            # WASAPI works best with larger buffer sizes
+            chunk = 2048
 
             # Open stream in callback mode for passthrough
             def audio_callback(in_data, frame_count, time_info, status):
@@ -1096,7 +1129,7 @@ class App:
             self.audio_stream = self.audio_pyaudio.open(
                 format=pyaudio.paInt16,
                 channels=channels,
-                rate=sample_rate,
+                rate=supported_rate,
                 input=True,
                 output=True,
                 input_device_index=input_idx,
@@ -1108,7 +1141,7 @@ class App:
             self.audio_stream.start_stream()
             self.audio_running = True
             self.audio_toggle_btn.configure(text="Stop Audio")
-            self.set_status(f"Audio streaming: {input_name} → {output_name}")
+            self.set_status(f"Audio streaming: {input_name} → {output_name} ({supported_rate} Hz, {channels}ch)")
 
         except Exception as e:
             messagebox.showerror("Audio error", f"Failed to start audio:\n{e}")
