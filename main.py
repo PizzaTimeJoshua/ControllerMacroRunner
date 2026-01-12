@@ -206,7 +206,7 @@ class App:
         top.columnconfigure(1, weight=1)
         top.columnconfigure(13, weight=1)
 
-        ttk.Checkbutton(top, text="Keyboard Control", variable=self.kb_enabled,
+        ttk.Checkbutton(top, text="Camera-less \nKeyboard Control", variable=self.kb_enabled,
                         command=self._on_keyboard_toggle).grid(row=1, column=4, columnspan=2, padx=(10, 6), sticky="w")
         ttk.Button(top, text="Keybinds…", command=self.open_keybinds_window).grid(row=1, column=6, padx=(0, 6))
 
