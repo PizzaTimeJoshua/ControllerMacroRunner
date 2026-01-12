@@ -111,8 +111,8 @@ def export_script_to_python(self):
                 used_vars.add(outv)
 
         if cmd == "random_range":
-            # Check for variables in min and max
-            for key in ("min", "max"):
+            # Check for variables in min, max, and integer
+            for key in ("min", "max", "integer"):
                 v = c.get(key)
                 if isinstance(v, str) and v.startswith("$"):
                     used_vars.add(v[1:])
@@ -257,21 +257,45 @@ def export_script_to_python(self):
             emit(f"    {pyv} = False")
 
         elif cmd == "random":
-            choices = op_to_py(c.get("choices"))
+            choices_raw = c.get("choices")
             outv = (c.get("out") or "random_value").strip()
             pyv = var_map.get(outv, _py_ident(outv))
-            emit(f"{pyv} = random.choice({choices})")
+
+            # Handle choices - could be a variable reference or a literal list
+            if isinstance(choices_raw, str) and choices_raw.startswith("$"):
+                # Entire choices list is a variable
+                choices_expr = op_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
+            elif isinstance(choices_raw, list):
+                # List with potential variable references inside
+                choices_expr = args_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
+            else:
+                # Fallback for unexpected types
+                choices_expr = op_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
 
         elif cmd == "random_range":
             min_val = op_to_py(c.get("min"))
             max_val = op_to_py(c.get("max"))
-            integer = c.get("integer", False)
+            integer_raw = c.get("integer", False)
             outv = (c.get("out") or "random_value").strip()
             pyv = var_map.get(outv, _py_ident(outv))
-            if integer:
-                emit(f"{pyv} = random.randint(int({min_val}), int({max_val}))")
+
+            # Handle integer parameter - could be a literal or variable
+            if isinstance(integer_raw, bool):
+                # Literal boolean - can decide at export time
+                if integer_raw:
+                    emit(f"{pyv} = random.randint(int({min_val}), int({max_val}))")
+                else:
+                    emit(f"{pyv} = random.uniform({min_val}, {max_val})")
             else:
-                emit(f"{pyv} = random.uniform({min_val}, {max_val})")
+                # Variable or expression - need runtime check
+                integer_expr = op_to_py(integer_raw)
+                emit(f"if {integer_expr}:")
+                emit(f"    {pyv} = random.randint(int({min_val}), int({max_val}))")
+                emit(f"else:")
+                emit(f"    {pyv} = random.uniform({min_val}, {max_val})")
 
         elif cmd == "random_value":
             outv = (c.get("out") or "random_value").strip()
