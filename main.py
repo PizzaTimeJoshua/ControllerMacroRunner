@@ -1082,66 +1082,103 @@ class App:
             input_info = self.audio_pyaudio.get_device_info_by_index(input_idx)
             output_info = self.audio_pyaudio.get_device_info_by_index(output_idx)
 
-            # Determine compatible settings
-            # Try common sample rates in order of preference
-            sample_rates = [48000, 44100, 32000, 24000, 16000, 8000]
-            supported_rate = None
+            # Get default sample rates for both devices
+            input_default_rate = int(input_info.get('defaultSampleRate', 48000))
+            output_default_rate = int(output_info.get('defaultSampleRate', 48000))
 
-            # Find a sample rate that works for both devices
-            for rate in sample_rates:
-                try:
-                    # Check if this rate is supported by both devices
-                    input_supported = self.audio_pyaudio.is_format_supported(
-                        rate,
-                        input_device=input_idx,
-                        input_channels=min(2, int(input_info.get('maxInputChannels', 2))),
-                        input_format=pyaudio.paInt16
-                    )
-                    output_supported = self.audio_pyaudio.is_format_supported(
-                        rate,
-                        output_device=output_idx,
-                        output_channels=min(2, int(output_info.get('maxOutputChannels', 2))),
-                        output_format=pyaudio.paInt16
-                    )
-                    if input_supported and output_supported:
-                        supported_rate = rate
-                        break
-                except ValueError:
-                    # Format not supported, try next rate
-                    continue
+            # Debug: Print device information
+            print(f"Input Device: {input_name}")
+            print(f"  Index: {input_idx}, Rate: {input_default_rate} Hz, Channels: {input_info.get('maxInputChannels')}")
+            print(f"  Host API: {input_info.get('hostApi')}")
+            print(f"Output Device: {output_name}")
+            print(f"  Index: {output_idx}, Rate: {output_default_rate} Hz, Channels: {output_info.get('maxOutputChannels')}")
+            print(f"  Host API: {output_info.get('hostApi')}")
 
-            if supported_rate is None:
-                # Fall back to default rates
-                supported_rate = int(input_info.get('defaultSampleRate', 48000))
+            # WASAPI is very particular about sample rates
+            # Priority: 1) Use device defaults if they match, 2) Try common rates, 3) Try each device's default
+            sample_rates_to_try = []
 
-            # Use conservative channel count (stereo or less)
-            channels = min(2,
-                          int(input_info.get('maxInputChannels', 2)),
-                          int(output_info.get('maxOutputChannels', 2)))
+            # If both devices have same default rate, prioritize it
+            if input_default_rate == output_default_rate:
+                sample_rates_to_try.append(input_default_rate)
 
-            # WASAPI works best with larger buffer sizes
-            chunk = 2048
+            # Add common rates
+            for rate in [48000, 44100, 96000, 192000, 32000, 24000, 16000]:
+                if rate not in sample_rates_to_try:
+                    sample_rates_to_try.append(rate)
 
-            # Open stream in callback mode for passthrough
+            # Add individual device defaults as fallbacks
+            if input_default_rate not in sample_rates_to_try:
+                sample_rates_to_try.append(input_default_rate)
+            if output_default_rate not in sample_rates_to_try:
+                sample_rates_to_try.append(output_default_rate)
+
+            # Try different channel configurations (1=mono, 2=stereo)
+            channel_configs = [
+                min(2, int(input_info.get('maxInputChannels', 2)), int(output_info.get('maxOutputChannels', 2))),
+                1  # Mono fallback
+            ]
+
+            # Try different buffer sizes
+            buffer_sizes = [2048, 4096, 1024, 8192]
+
+            # Define callback function once (outside loop)
             def audio_callback(in_data, frame_count, time_info, status):
                 return (in_data, pyaudio.paContinue)
 
-            self.audio_stream = self.audio_pyaudio.open(
-                format=pyaudio.paInt16,
-                channels=channels,
-                rate=supported_rate,
-                input=True,
-                output=True,
-                input_device_index=input_idx,
-                output_device_index=output_idx,
-                frames_per_buffer=chunk,
-                stream_callback=audio_callback
-            )
+            # Try to open stream with different configurations
+            stream_opened = False
+            last_error = None
+            attempts = []
 
-            self.audio_stream.start_stream()
-            self.audio_running = True
-            self.audio_toggle_btn.configure(text="Stop Audio")
-            self.set_status(f"Audio streaming: {input_name} → {output_name} ({supported_rate} Hz, {channels}ch)")
+            for rate in sample_rates_to_try:
+                for channels in channel_configs:
+                    for chunk in buffer_sizes:
+                        try:
+                            attempts.append(f"{rate}Hz/{channels}ch/{chunk}buf")
+                            print(f"Trying: {rate} Hz, {channels} channels, {chunk} buffer...")
+
+                            self.audio_stream = self.audio_pyaudio.open(
+                                format=pyaudio.paInt16,
+                                channels=channels,
+                                rate=rate,
+                                input=True,
+                                output=True,
+                                input_device_index=input_idx,
+                                output_device_index=output_idx,
+                                frames_per_buffer=chunk,
+                                stream_callback=audio_callback
+                            )
+
+                            # If we got here, stream opened successfully
+                            print(f"SUCCESS: {rate} Hz, {channels} channels, {chunk} buffer")
+                            self.audio_stream.start_stream()
+                            self.audio_running = True
+                            self.audio_toggle_btn.configure(text="Stop Audio")
+                            self.set_status(f"Audio streaming: {input_name} → {output_name} ({rate} Hz, {channels}ch, {chunk} buffer)")
+                            stream_opened = True
+                            break
+
+                        except Exception as e:
+                            last_error = e
+                            print(f"  Failed: {e}")
+                            # Close any partially opened stream
+                            if hasattr(self, 'audio_stream') and self.audio_stream:
+                                try:
+                                    self.audio_stream.close()
+                                except:
+                                    pass
+                                self.audio_stream = None
+                            continue
+
+                    if stream_opened:
+                        break
+                if stream_opened:
+                    break
+
+            if not stream_opened:
+                attempts_str = "\n".join([f"  - {a}" for a in attempts[:10]])  # Show first 10 attempts
+                raise Exception(f"Could not find compatible audio settings.\n\nLast error: {last_error}\n\nDevice info:\nInput: {input_default_rate} Hz, {input_info.get('maxInputChannels')} ch\nOutput: {output_default_rate} Hz, {output_info.get('maxOutputChannels')} ch\n\nAttempted configurations:\n{attempts_str}")
 
         except Exception as e:
             messagebox.showerror("Audio error", f"Failed to start audio:\n{e}")

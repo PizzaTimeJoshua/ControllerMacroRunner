@@ -3,6 +3,8 @@ Audio module for Controller Macro Runner.
 Handles audio device enumeration and passthrough.
 """
 
+import re
+
 # Audio support (optional)
 try:
     import pyaudio
@@ -83,7 +85,6 @@ def list_audio_devices():
 
                 # Filter out numbered duplicate arrays (e.g., "Microphone Array 1", "Microphone Array 2")
                 # These are internal channels that Windows Sound System doesn't show
-                import re
                 if re.search(r'\s+\d+\s*\(\s*\)$', name):  # Ends with " 1 ()" or similar
                     continue
 
