@@ -21,6 +21,15 @@ def ffmpeg_path() -> str:
     return "ffmpeg"  # fallback to PATH
 
 
+def tesseract_path() -> str:
+    """Get path to tesseract executable."""
+    # Prefer bundled tesseract.exe
+    bundled = resource_path("bin/tesseract.exe")
+    if os.path.exists(bundled):
+        return bundled
+    return "tesseract"  # fallback to PATH
+
+
 def safe_script_filename(name: str) -> str:
     """Sanitize a script filename for safe filesystem use."""
     name = name.strip()
