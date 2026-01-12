@@ -89,13 +89,19 @@ class App:
         # Disable keyboard focus on all buttons/checkbuttons to prevent
         # Space/Return from activating them while using keyboard control
         # Bind FocusIn to immediately move focus away from buttons
+        # Only applies to main window buttons, not dialog buttons
         def _skip_button_focus(event):
-            # Move focus to root to skip buttons entirely
+            # Only skip focus for buttons in the main window, not dialogs
             try:
-                self.root.focus_set()
+                widget = event.widget
+                toplevel = widget.winfo_toplevel()
+                # Only redirect focus if button is in the main root window
+                if toplevel == self.root:
+                    self.root.focus_set()
+                    return "break"
             except tk.TclError:
                 pass
-            return "break"
+            return None  # Allow normal focus handling for dialogs
 
         for widget_class in ("TButton", "Button", "TCheckbutton", "Checkbutton", "TRadiobutton", "Radiobutton"):
             self.root.bind_class(widget_class, "<FocusIn>", _skip_button_focus)
