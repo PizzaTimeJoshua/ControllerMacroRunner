@@ -14,7 +14,8 @@ class CommandEditorDialog(tk.Toplevel):
     """Dialog for editing script commands with schema-driven fields."""
 
     def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",
-                 test_callback=None, select_area_callback=None, select_color_callback=None):
+                 test_callback=None, select_area_callback=None, select_color_callback=None,
+                 select_area_color_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
@@ -22,6 +23,7 @@ class CommandEditorDialog(tk.Toplevel):
         self.test_callback = test_callback
         self.select_area_callback = select_area_callback  # Callback for region selection
         self.select_color_callback = select_color_callback  # Callback for color picker
+        self.select_area_color_callback = select_area_color_callback  # Callback for area+color picker
 
         self.title(title)
         self.transient(parent)
@@ -333,6 +335,23 @@ class CommandEditorDialog(tk.Toplevel):
                 foreground="gray"
             ).pack(side="left", padx=(10, 0))
 
+        # Add "Select Area & Color from Camera" button for find_area_color command
+        if name == "find_area_color" and self.select_area_color_callback:
+            next_row = len(spec.arg_schema)
+            area_color_frame = ttk.Frame(self.fields_frame)
+            area_color_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+
+            ttk.Button(
+                area_color_frame, text="Select Area & Color from Camera",
+                command=self._open_area_color_picker
+            ).pack(side="left")
+
+            ttk.Label(
+                area_color_frame,
+                text="Click to visually select area and target color from camera feed",
+                foreground="gray"
+            ).pack(side="left", padx=(10, 0))
+
         # Enable Test only if provided and command is supported
         if self.test_callback is None or spec.test == False:
             self.test_btn.pack_forget()
@@ -537,6 +556,63 @@ class CommandEditorDialog(tk.Toplevel):
             self.field_vars["x"].set(str(x))
         if "y" in self.field_vars:
             self.field_vars["y"].set(str(y))
+        if "rgb" in self.field_vars:
+            self.field_vars["rgb"].set(f"{r},{g},{b}")
+
+        # Re-grab focus
+        self.grab_set()
+        self.focus_set()
+
+    def _open_area_color_picker(self):
+        """Open the area color picker for find_area_color command."""
+        if not self.select_area_color_callback:
+            return
+
+        # Get current values to use as initial selection
+        initial_region = None
+        initial_rgb = None
+        try:
+            x = int(self.field_vars.get("x", tk.StringVar(value="0")).get())
+            y = int(self.field_vars.get("y", tk.StringVar(value="0")).get())
+            w = int(self.field_vars.get("width", tk.StringVar(value="10")).get())
+            h = int(self.field_vars.get("height", tk.StringVar(value="10")).get())
+            if w > 0 and h > 0:
+                initial_region = (x, y, w, h)
+
+            # Get RGB if available
+            rgb_var = self.field_vars.get("rgb")
+            if rgb_var:
+                rgb_text = rgb_var.get().strip()
+                if rgb_text.startswith("["):
+                    initial_rgb = json.loads(rgb_text)
+                else:
+                    parts = [p.strip() for p in rgb_text.split(",")]
+                    initial_rgb = [int(parts[0]), int(parts[1]), int(parts[2])]
+        except (ValueError, TypeError, IndexError):
+            pass
+
+        # Release grab temporarily so the picker window can work
+        self.grab_release()
+
+        # Call the callback to open the picker
+        # It returns True if picker was opened, False otherwise
+        # Pass _restore_grab as on_close callback to ensure grab is restored when picker closes
+        opened = self.select_area_color_callback(initial_region, initial_rgb, self._on_area_color_selected, self._restore_grab)
+        if not opened:
+            # Picker wasn't opened (e.g., camera not running), restore grab
+            self._restore_grab()
+
+    def _on_area_color_selected(self, x, y, width, height, r, g, b):
+        """Callback when an area and color are selected."""
+        # Update the field values
+        if "x" in self.field_vars:
+            self.field_vars["x"].set(str(x))
+        if "y" in self.field_vars:
+            self.field_vars["y"].set(str(y))
+        if "width" in self.field_vars:
+            self.field_vars["width"].set(str(width))
+        if "height" in self.field_vars:
+            self.field_vars["height"].set(str(height))
         if "rgb" in self.field_vars:
             self.field_vars["rgb"].set(f"{r},{g},{b}")
 
