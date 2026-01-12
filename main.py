@@ -107,7 +107,10 @@ class App:
         self.audio_input_var = tk.StringVar()
         self.audio_output_var = tk.StringVar()
         self.audio_pyaudio = None
-        self.audio_stream = None
+        self.audio_stream = None  # Legacy single stream
+        self.audio_input_stream = None  # New separate input stream
+        self.audio_output_stream = None  # New separate output stream
+        self.audio_queue = None  # Queue for passing data between streams
         self.audio_running = False
         self.audio_thread = None
         self.audio_input_devices = []
@@ -1082,105 +1085,133 @@ class App:
             input_info = self.audio_pyaudio.get_device_info_by_index(input_idx)
             output_info = self.audio_pyaudio.get_device_info_by_index(output_idx)
 
-            # Get default sample rates for both devices
-            input_default_rate = int(input_info.get('defaultSampleRate', 48000))
-            output_default_rate = int(output_info.get('defaultSampleRate', 48000))
+            # Use device default rates and channels (WASAPI requires exact match)
+            input_rate = int(input_info.get('defaultSampleRate', 48000))
+            output_rate = int(output_info.get('defaultSampleRate', 48000))
+            input_channels = min(2, int(input_info.get('maxInputChannels', 1)))
+            output_channels = min(2, int(output_info.get('maxOutputChannels', 2)))
 
             # Debug: Print device information
             print(f"Input Device: {input_name}")
-            print(f"  Index: {input_idx}, Rate: {input_default_rate} Hz, Channels: {input_info.get('maxInputChannels')}")
-            print(f"  Host API: {input_info.get('hostApi')}")
+            print(f"  Index: {input_idx}, Rate: {input_rate} Hz, Channels: {input_channels}")
             print(f"Output Device: {output_name}")
-            print(f"  Index: {output_idx}, Rate: {output_default_rate} Hz, Channels: {output_info.get('maxOutputChannels')}")
-            print(f"  Host API: {output_info.get('hostApi')}")
+            print(f"  Index: {output_idx}, Rate: {output_rate} Hz, Channels: {output_channels}")
 
-            # WASAPI is very particular about sample rates
-            # Priority: 1) Use device defaults if they match, 2) Try common rates, 3) Try each device's default
-            sample_rates_to_try = []
+            # Use larger buffer for WASAPI stability
+            chunk = 2048
 
-            # If both devices have same default rate, prioritize it
-            if input_default_rate == output_default_rate:
-                sample_rates_to_try.append(input_default_rate)
+            # Create a queue to pass audio data between input and output
+            import queue
+            self.audio_queue = queue.Queue(maxsize=10)
 
-            # Add common rates
-            for rate in [48000, 44100, 96000, 192000, 32000, 24000, 16000]:
-                if rate not in sample_rates_to_try:
-                    sample_rates_to_try.append(rate)
+            # Input stream callback - captures audio and puts in queue
+            def input_callback(in_data, frame_count, time_info, status):
+                if status:
+                    print(f"Input status: {status}")
+                try:
+                    self.audio_queue.put_nowait(in_data)
+                except queue.Full:
+                    pass  # Drop frames if queue is full
+                return (None, pyaudio.paContinue)
 
-            # Add individual device defaults as fallbacks
-            if input_default_rate not in sample_rates_to_try:
-                sample_rates_to_try.append(input_default_rate)
-            if output_default_rate not in sample_rates_to_try:
-                sample_rates_to_try.append(output_default_rate)
+            # Output stream callback - gets audio from queue and plays it
+            def output_callback(in_data, frame_count, time_info, status):
+                if status:
+                    print(f"Output status: {status}")
+                try:
+                    data = self.audio_queue.get_nowait()
 
-            # Try different channel configurations (1=mono, 2=stereo)
-            channel_configs = [
-                min(2, int(input_info.get('maxInputChannels', 2)), int(output_info.get('maxOutputChannels', 2))),
-                1  # Mono fallback
-            ]
+                    # Convert data to numpy array for processing
+                    audio_data = np.frombuffer(data, dtype=np.int16)
 
-            # Try different buffer sizes
-            buffer_sizes = [2048, 4096, 1024, 8192]
+                    # Reshape based on input channels
+                    if input_channels > 1:
+                        audio_data = audio_data.reshape(-1, input_channels)
 
-            # Define callback function once (outside loop)
-            def audio_callback(in_data, frame_count, time_info, status):
-                return (in_data, pyaudio.paContinue)
+                    # Handle sample rate conversion (simple nearest-neighbor resampling)
+                    if input_rate != output_rate:
+                        ratio = output_rate / input_rate
+                        new_length = int(len(audio_data) * ratio)
+                        indices = (np.arange(new_length) / ratio).astype(int)
+                        indices = np.clip(indices, 0, len(audio_data) - 1)
+                        audio_data = audio_data[indices]
 
-            # Try to open stream with different configurations
-            stream_opened = False
-            last_error = None
-            attempts = []
+                    # Handle channel conversion
+                    if input_channels == 1 and output_channels == 2:
+                        # Mono to stereo: duplicate channel
+                        audio_data = np.column_stack([audio_data, audio_data])
+                    elif input_channels == 2 and output_channels == 1:
+                        # Stereo to mono: average channels
+                        audio_data = audio_data.mean(axis=1).astype(np.int16)
 
-            for rate in sample_rates_to_try:
-                for channels in channel_configs:
-                    for chunk in buffer_sizes:
-                        try:
-                            attempts.append(f"{rate}Hz/{channels}ch/{chunk}buf")
-                            print(f"Trying: {rate} Hz, {channels} channels, {chunk} buffer...")
+                    # Ensure correct shape and size
+                    audio_data = audio_data.flatten()
+                    expected_samples = frame_count * output_channels
 
-                            self.audio_stream = self.audio_pyaudio.open(
-                                format=pyaudio.paInt16,
-                                channels=channels,
-                                rate=rate,
-                                input=True,
-                                output=True,
-                                input_device_index=input_idx,
-                                output_device_index=output_idx,
-                                frames_per_buffer=chunk,
-                                stream_callback=audio_callback
-                            )
+                    if len(audio_data) < expected_samples:
+                        # Pad with zeros
+                        padding = np.zeros(expected_samples - len(audio_data), dtype=np.int16)
+                        audio_data = np.concatenate([audio_data, padding])
+                    elif len(audio_data) > expected_samples:
+                        # Trim excess
+                        audio_data = audio_data[:expected_samples]
 
-                            # If we got here, stream opened successfully
-                            print(f"SUCCESS: {rate} Hz, {channels} channels, {chunk} buffer")
-                            self.audio_stream.start_stream()
-                            self.audio_running = True
-                            self.audio_toggle_btn.configure(text="Stop Audio")
-                            self.set_status(f"Audio streaming: {input_name} → {output_name} ({rate} Hz, {channels}ch, {chunk} buffer)")
-                            stream_opened = True
-                            break
+                    return (audio_data.tobytes(), pyaudio.paContinue)
 
-                        except Exception as e:
-                            last_error = e
-                            print(f"  Failed: {e}")
-                            # Close any partially opened stream
-                            if hasattr(self, 'audio_stream') and self.audio_stream:
-                                try:
-                                    self.audio_stream.close()
-                                except:
-                                    pass
-                                self.audio_stream = None
-                            continue
+                except queue.Empty:
+                    # No data available, output silence
+                    silence = np.zeros(frame_count * output_channels, dtype=np.int16)
+                    return (silence.tobytes(), pyaudio.paContinue)
+                except Exception as e:
+                    print(f"Output callback error: {e}")
+                    # Output silence on error
+                    silence = np.zeros(frame_count * output_channels, dtype=np.int16)
+                    return (silence.tobytes(), pyaudio.paContinue)
 
-                    if stream_opened:
-                        break
-                if stream_opened:
-                    break
+            # Open input stream
+            print(f"Opening input stream: {input_rate} Hz, {input_channels} ch...")
+            self.audio_input_stream = self.audio_pyaudio.open(
+                format=pyaudio.paInt16,
+                channels=input_channels,
+                rate=input_rate,
+                input=True,
+                input_device_index=input_idx,
+                frames_per_buffer=chunk,
+                stream_callback=input_callback
+            )
 
-            if not stream_opened:
-                attempts_str = "\n".join([f"  - {a}" for a in attempts[:10]])  # Show first 10 attempts
-                raise Exception(f"Could not find compatible audio settings.\n\nLast error: {last_error}\n\nDevice info:\nInput: {input_default_rate} Hz, {input_info.get('maxInputChannels')} ch\nOutput: {output_default_rate} Hz, {output_info.get('maxOutputChannels')} ch\n\nAttempted configurations:\n{attempts_str}")
+            # Open output stream
+            print(f"Opening output stream: {output_rate} Hz, {output_channels} ch...")
+            self.audio_output_stream = self.audio_pyaudio.open(
+                format=pyaudio.paInt16,
+                channels=output_channels,
+                rate=output_rate,
+                output=True,
+                output_device_index=output_idx,
+                frames_per_buffer=chunk,
+                stream_callback=output_callback
+            )
+
+            # Start both streams
+            self.audio_input_stream.start_stream()
+            self.audio_output_stream.start_stream()
+
+            self.audio_running = True
+            self.audio_toggle_btn.configure(text="Stop Audio")
+
+            conversion_info = ""
+            if input_rate != output_rate:
+                conversion_info += f" [rate: {input_rate}→{output_rate} Hz]"
+            if input_channels != output_channels:
+                conversion_info += f" [ch: {input_channels}→{output_channels}]"
+
+            self.set_status(f"Audio streaming: {input_name} → {output_name}{conversion_info}")
+            print(f"SUCCESS: Audio streaming started{conversion_info}")
 
         except Exception as e:
+            import traceback
+            print(f"Error starting audio: {e}")
+            traceback.print_exc()
             messagebox.showerror("Audio error", f"Failed to start audio:\n{e}")
             self.stop_audio()
 
@@ -1188,20 +1219,52 @@ class App:
         self.audio_running = False
         self.audio_toggle_btn.configure(text="Start Audio")
 
+        # Stop and close input stream
         try:
-            if self.audio_stream:
+            if hasattr(self, 'audio_input_stream') and self.audio_input_stream:
+                self.audio_input_stream.stop_stream()
+                self.audio_input_stream.close()
+                self.audio_input_stream = None
+        except Exception as e:
+            print(f"Error stopping input stream: {e}")
+
+        # Stop and close output stream
+        try:
+            if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+                self.audio_output_stream.stop_stream()
+                self.audio_output_stream.close()
+                self.audio_output_stream = None
+        except Exception as e:
+            print(f"Error stopping output stream: {e}")
+
+        # Legacy support for old single stream
+        try:
+            if hasattr(self, 'audio_stream') and self.audio_stream:
                 self.audio_stream.stop_stream()
                 self.audio_stream.close()
                 self.audio_stream = None
         except Exception:
             pass
 
+        # Clear queue
         try:
-            if self.audio_pyaudio:
-                self.audio_pyaudio.terminate()
-                self.audio_pyaudio = None
+            if hasattr(self, 'audio_queue') and self.audio_queue:
+                while not self.audio_queue.empty():
+                    try:
+                        self.audio_queue.get_nowait()
+                    except:
+                        break
+                self.audio_queue = None
         except Exception:
             pass
+
+        # Terminate PyAudio
+        try:
+            if hasattr(self, 'audio_pyaudio') and self.audio_pyaudio:
+                self.audio_pyaudio.terminate()
+                self.audio_pyaudio = None
+        except Exception as e:
+            print(f"Error terminating PyAudio: {e}")
 
         self.set_status("Audio stopped.")
 
