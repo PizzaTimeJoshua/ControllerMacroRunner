@@ -15,7 +15,7 @@ def resource_path(rel_path: str) -> str:
 def ffmpeg_path() -> str:
     """Get path to ffmpeg executable."""
     # Prefer bundled ffmpeg.exe
-    bundled = resource_path("bin/ffmpeg.exe")
+    bundled = resource_path("bin/ffmpeg/ffmpeg.exe")
     if os.path.exists(bundled):
         return bundled
     return "ffmpeg"  # fallback to PATH
@@ -24,7 +24,7 @@ def ffmpeg_path() -> str:
 def tesseract_path() -> str:
     """Get path to tesseract executable."""
     # Prefer bundled tesseract.exe
-    bundled = resource_path("bin/tesseract.exe")
+    bundled = resource_path("bin/Tesseract-OCR/tesseract.exe")
     if os.path.exists(bundled):
         return bundled
     return "tesseract"  # fallback to PATH
