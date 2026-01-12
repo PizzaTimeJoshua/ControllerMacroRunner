@@ -1097,20 +1097,37 @@ class App:
             print(f"Output Device: {output_name}")
             print(f"  Index: {output_idx}, Rate: {output_rate} Hz, Channels: {output_channels}")
 
-            # Use larger buffer for WASAPI stability
-            input_chunk = 1024  # Smaller input chunks for lower latency
-            output_chunk = 2048  # Larger output chunks for stability
+            # Use larger buffer for WASAPI stability and reduce callback frequency
+            input_chunk = 2048  # Increased from 1024
+            output_chunk = 4096  # Increased from 2048 for more efficient processing
 
             # Create a larger queue with more buffering to prevent underruns
             import queue
-            self.audio_queue = queue.Queue(maxsize=50)
+            self.audio_queue = queue.Queue(maxsize=100)  # Increased from 50
 
             # Resampling state for smoother conversion
             self.audio_resample_buffer = np.array([], dtype=np.int16)
-            self.audio_resample_pos = 0.0
             self.audio_prebuffer_ready = False
             self.audio_underruns = 0
             self.audio_overruns = 0
+
+            # Check if we can use simple decimation/interpolation (for integer ratios)
+            rate_ratio = input_rate / output_rate
+            use_simple_resample = abs(rate_ratio - round(rate_ratio)) < 0.01  # Close to integer ratio
+
+            if use_simple_resample:
+                print(f"Using optimized resampling (ratio: {rate_ratio:.2f})")
+            else:
+                print(f"Using linear interpolation (ratio: {rate_ratio:.2f})")
+
+            # Try to import scipy for high-quality resampling (optional)
+            try:
+                from scipy import signal as scipy_signal
+                use_scipy = True
+                print("Using scipy for high-quality resampling")
+            except ImportError:
+                use_scipy = False
+                scipy_signal = None
 
             # Input stream callback - captures audio and puts in queue
             def input_callback(in_data, frame_count, time_info, status):
@@ -1131,7 +1148,7 @@ class App:
 
                 # Wait for queue to fill up a bit before starting (pre-buffering)
                 if not self.audio_prebuffer_ready:
-                    if self.audio_queue.qsize() >= 5:
+                    if self.audio_queue.qsize() >= 3:  # Reduced from 5 for lower latency
                         self.audio_prebuffer_ready = True
                         print("Audio pre-buffering complete, starting playback...")
                     else:
@@ -1143,8 +1160,8 @@ class App:
                     # Accumulate enough input data for conversion
                     accumulated_data = []
 
-                    # Try to get multiple chunks if available for smoother conversion
-                    chunks_to_get = max(1, min(3, self.audio_queue.qsize()))
+                    # Get chunks more aggressively to empty queue
+                    chunks_to_get = max(2, min(8, self.audio_queue.qsize()))
                     for _ in range(chunks_to_get):
                         try:
                             data = self.audio_queue.get_nowait()
@@ -1174,44 +1191,49 @@ class App:
                         else:
                             audio_data = np.concatenate([self.audio_resample_buffer, audio_data])
 
-                    # Handle sample rate conversion with linear interpolation
+                    # Handle sample rate conversion (optimized)
                     if input_rate != output_rate:
-                        ratio = output_rate / input_rate
+                        ratio = input_rate / output_rate  # e.g., 96000/48000 = 2.0
                         input_len = len(audio_data)
                         output_len_needed = frame_count
 
                         # Calculate how many input samples we need
-                        input_samples_needed = int(output_len_needed / ratio) + 2
+                        input_samples_needed = int(output_len_needed * ratio) + int(ratio) + 1
 
                         if input_len >= input_samples_needed:
                             # We have enough data for conversion
-                            indices = np.arange(output_len_needed) / ratio
-
-                            if input_channels == 1:
-                                # Linear interpolation for mono
-                                int_indices = indices.astype(int)
-                                frac = indices - int_indices
-                                int_indices = np.clip(int_indices, 0, input_len - 2)
-
-                                audio_data_converted = (
-                                    audio_data[int_indices] * (1 - frac) +
-                                    audio_data[int_indices + 1] * frac
-                                ).astype(np.int16)
-                            else:
-                                # Linear interpolation for each channel
-                                int_indices = indices.astype(int)
-                                frac = indices - int_indices
-                                int_indices = np.clip(int_indices, 0, input_len - 2)
-
-                                audio_data_converted = np.zeros((output_len_needed, input_channels), dtype=np.int16)
-                                for ch in range(input_channels):
-                                    audio_data_converted[:, ch] = (
-                                        audio_data[int_indices, ch] * (1 - frac) +
-                                        audio_data[int_indices + 1, ch] * frac
+                            if use_simple_resample and abs(ratio - 2.0) < 0.01:
+                                # Fast decimation by 2 (96kHz -> 48kHz)
+                                samples_needed = output_len_needed * 2
+                                if input_channels == 1:
+                                    audio_data_converted = audio_data[:samples_needed:2]  # Take every 2nd sample
+                                else:
+                                    audio_data_converted = audio_data[:samples_needed:2, :]
+                                samples_used = samples_needed
+                            elif use_scipy and scipy_signal is not None:
+                                # High-quality scipy resampling
+                                samples_to_use = int(output_len_needed * ratio)
+                                if input_channels == 1:
+                                    audio_data_converted = scipy_signal.resample(
+                                        audio_data[:samples_to_use], output_len_needed
                                     ).astype(np.int16)
+                                else:
+                                    audio_data_converted = np.column_stack([
+                                        scipy_signal.resample(audio_data[:samples_to_use, ch], output_len_needed).astype(np.int16)
+                                        for ch in range(input_channels)
+                                    ])
+                                samples_used = samples_to_use
+                            else:
+                                # Simple nearest-neighbor (fastest fallback)
+                                indices = (np.arange(output_len_needed) * ratio).astype(int)
+                                indices = np.clip(indices, 0, input_len - 1)
+                                if input_channels == 1:
+                                    audio_data_converted = audio_data[indices]
+                                else:
+                                    audio_data_converted = audio_data[indices, :]
+                                samples_used = int(output_len_needed * ratio)
 
                             # Store remaining samples for next callback
-                            samples_used = int(output_len_needed / ratio) + 1
                             if samples_used < input_len:
                                 if input_channels > 1:
                                     self.audio_resample_buffer = audio_data[samples_used:].flatten()
