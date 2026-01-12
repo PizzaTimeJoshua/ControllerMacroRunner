@@ -63,6 +63,7 @@ class App:
 
         # --- keyboard controller mode (manual control)
         self.kb_enabled = tk.BooleanVar(value=False)
+        self.kb_camera_focused = False  # True when a camera frame widget has focus for keyboard control
         self.kb_bindings = {  # key -> controller button name (must match ALL_BUTTONS entries)
             "w": "Up",
             "a": "Left",
@@ -84,6 +85,23 @@ class App:
         # Global key events (manual controller)
         self.root.bind_all("<KeyPress>", self._on_key_press)
         self.root.bind_all("<KeyRelease>", self._on_key_release)
+
+        # Disable keyboard focus on all buttons/checkbuttons to prevent
+        # Space/Return from activating them while using keyboard control
+        # Bind FocusIn to immediately move focus away from buttons
+        def _skip_button_focus(event):
+            # Move focus to root to skip buttons entirely
+            try:
+                self.root.focus_set()
+            except tk.TclError:
+                pass
+            return "break"
+
+        for widget_class in ("TButton", "Button", "TCheckbutton", "Checkbutton", "TRadiobutton", "Radiobutton"):
+            self.root.bind_class(widget_class, "<FocusIn>", _skip_button_focus)
+
+        # Global click event to detect focus loss (clicking outside camera frame)
+        self.root.bind_all("<Button-1>", self._check_focus_loss, add="+")
 
         # camera state
         self.cam_width = 640
@@ -188,7 +206,7 @@ class App:
         top.columnconfigure(1, weight=1)
         top.columnconfigure(13, weight=1)
 
-        ttk.Checkbutton(top, text="Keyboard Control", variable=self.kb_enabled,
+        ttk.Checkbutton(top, text="Camera-less \nKeyboard Control", variable=self.kb_enabled,
                         command=self._on_keyboard_toggle).grid(row=1, column=4, columnspan=2, padx=(10, 6), sticky="w")
         ttk.Button(top, text="Keybinds…", command=self.open_keybinds_window).grid(row=1, column=6, padx=(0, 6))
 
@@ -321,7 +339,7 @@ class App:
 
         self.video_label.bind("<Motion>", self._on_video_mouse_move)
         self.video_label.bind("<Leave>", self._on_video_mouse_leave)
-        self.video_label.bind("<Button-1>", self._on_video_click_copy)
+        self.video_label.bind("<Button-1>", self._on_video_click)
         self.video_label.bind("<Shift-Button-1>", self._on_video_click_copy_json)
         self.video_label.bind("<Double-Button-1>", self._on_video_double_click)
 
@@ -471,16 +489,32 @@ class App:
         return ks
 
     def _manual_control_allowed(self):
-        # Only allow manual keyboard control when:
-        # - enabled
-        # - serial connected
-        # - script NOT running
-        return bool(self.kb_enabled.get()) and self.serial.connected and (not self.engine.running)
+        """
+        Check if manual keyboard control is allowed.
+        Allowed when:
+        - kb_enabled is True (checkbox) OR kb_camera_focused is True (auto-focus)
+        - A backend is connected (serial or 3DS)
+        - Script is NOT running
+        """
+        if self.engine.running:
+            return False
+
+        # Check if keyboard control is enabled (either by checkbox or camera focus)
+        if not (self.kb_enabled.get() or self.kb_camera_focused):
+            return False
+
+        # Check if any backend is connected
+        self._select_active_backend()
+        if self.active_backend and getattr(self.active_backend, "connected", False):
+            return True
+
+        return False
 
     def _on_keyboard_toggle(self):
         # Turning off: release everything
         if not self.kb_enabled.get():
             self._release_all_keyboard_buttons()
+            self.kb_camera_focused = False  # Also clear camera focus
             self.set_status("Keyboard Control: OFF")
             return
 
@@ -490,9 +524,13 @@ class App:
             messagebox.showwarning("Keyboard Control", "Stop the script before enabling keyboard control.")
             return
 
-        if not self.serial.connected:
+        # Check if any backend is connected
+        self._select_active_backend()
+        backend_connected = self.active_backend and getattr(self.active_backend, "connected", False)
+
+        if not backend_connected:
             # allow toggling on, but it won't do anything until connected
-            self.set_status("Keyboard Control: ON (connect serial to use)")
+            self.set_status("Keyboard Control: ON (connect a backend to use)")
         else:
             self.set_status("Keyboard Control: ON")
 
@@ -500,8 +538,72 @@ class App:
         self.kb_down.clear()
         self.kb_buttons_held.clear()
         # go neutral only if script not running
-        if not self.engine.running and self.serial.connected:
-            self.serial.set_state(0, 0)
+        self._select_active_backend()
+        if not self.engine.running and self.active_backend and getattr(self.active_backend, "connected", False):
+            self.active_backend.set_buttons([])
+
+    def _enable_camera_keyboard_focus(self, event=None):
+        """Enable keyboard control focus when camera frame is clicked."""
+        if self.engine.running:
+            return  # Don't enable during script execution
+
+        was_focused = self.kb_camera_focused
+        self.kb_camera_focused = True
+
+        # Check if backend is connected
+        self._select_active_backend()
+        backend_connected = self.active_backend and getattr(self.active_backend, "connected", False)
+
+        if not was_focused:
+            if backend_connected:
+                self.set_status("Keyboard Control: Active (click elsewhere to deactivate)")
+            else:
+                self.set_status("Keyboard Control: Focused (connect a backend to use)")
+
+    def _disable_camera_keyboard_focus(self, event=None):
+        """Disable keyboard control focus when clicking outside camera frame."""
+        if not self.kb_camera_focused:
+            return  # Already not focused
+
+        self.kb_camera_focused = False
+
+        # Only release buttons if the checkbox is not enabled
+        # (if checkbox is enabled, keyboard control continues)
+        if not self.kb_enabled.get():
+            self._release_all_keyboard_buttons()
+            self.set_status("Keyboard Control: Inactive")
+
+    def _check_focus_loss(self, event):
+        """
+        Check if a click event is outside all camera frames.
+        If so, disable camera keyboard focus.
+        """
+        if not self.kb_camera_focused:
+            return  # Already not focused
+
+        # Get the widget that was clicked
+        widget = event.widget
+
+        # Check if the click was on the main video label
+        if widget == self.video_label:
+            return  # Click on main camera - keep focus
+
+        # Check if we have a popout window
+        if self.popout_window is not None:
+            # Check if click was on the popout video label
+            if widget == self.popout_window.video_label:
+                return  # Click on popout camera - keep focus
+
+            # Check if click was anywhere inside the popout window
+            # This allows clicking coord bar etc. without losing focus
+            try:
+                if widget.winfo_toplevel() == self.popout_window.window:
+                    return  # Click inside popout window - keep focus
+            except (tk.TclError, AttributeError):
+                pass  # Widget may have been destroyed
+
+        # Click was elsewhere - disable focus
+        self._disable_camera_keyboard_focus()
 
     def _on_key_press(self, event):
         if not self._manual_control_allowed():
@@ -511,12 +613,15 @@ class App:
         if not ks:
             return
 
+        # Check if this key is mapped to a controller button
+        btn = self.kb_bindings.get(ks)
+
         # Prevent repeat spamming (Tk sends repeats while held)
         if ks in self.kb_down:
-            return
+            # Return "break" to prevent key from triggering GUI buttons
+            return "break" if btn else None
         self.kb_down.add(ks)
 
-        btn = self.kb_bindings.get(ks)
         if not btn:
             return
 
@@ -524,6 +629,10 @@ class App:
         self._select_active_backend()
         if self.active_backend and getattr(self.active_backend, "connected", False):
             self.active_backend.set_buttons(sorted(self.kb_buttons_held))
+
+        # Return "break" to prevent the key event from propagating to GUI widgets
+        # This prevents Enter/Space from activating focused buttons while controlling
+        return "break"
 
 
     def _on_key_release(self, event):
@@ -534,10 +643,12 @@ class App:
         if not ks:
             return
 
+        # Check if this key is mapped to a controller button
+        btn = self.kb_bindings.get(ks)
+
         if ks in self.kb_down:
             self.kb_down.remove(ks)
 
-        btn = self.kb_bindings.get(ks)
         if not btn:
             return
 
@@ -547,6 +658,9 @@ class App:
         self._select_active_backend()
         if self.active_backend and getattr(self.active_backend, "connected", False):
             self.active_backend.set_buttons(sorted(self.kb_buttons_held))
+
+        # Return "break" to prevent the key event from propagating to GUI widgets
+        return "break"
 
 
 
@@ -559,17 +673,28 @@ class App:
         except Exception as e:
             self.set_status(f"Clipboard error: {e}")
 
-    def _on_video_click_copy(self, event):
+    def _on_video_click(self, event):
+        """Handle single click on video - enables keyboard focus and copies coords."""
+        # Enable keyboard focus when clicking on camera frame
+        self._enable_camera_keyboard_focus(event)
+
+        # Also copy coordinates
         xy = self._event_to_frame_xy(event) or self._last_video_xy
         if xy is None:
-            self.set_status("No coords to copy.")
             return
         x, y = xy
         s = f"{x},{y}"
         self._copy_to_clipboard(s)
-        self.set_status(f"Copied coords: {s}")
+        # Only show coords status if not just showing keyboard focus status
+        if self.kb_camera_focused:
+            self.set_status(f"Keyboard Control: Active | Coords: {s}")
+        else:
+            self.set_status(f"Copied coords: {s}")
 
     def _on_video_click_copy_json(self, event):
+        # Enable keyboard focus when clicking on camera frame
+        self._enable_camera_keyboard_focus(event)
+
         xy = self._event_to_frame_xy(event) or self._last_video_xy
         if xy is None:
             self.set_status("No coords to copy.")
@@ -743,6 +868,8 @@ class App:
         if self.popout_window is not None:
             self.popout_window.close()
             self.popout_window = None
+            # Disable camera focus since the focused window is closing
+            self._disable_camera_keyboard_focus()
             self.set_status("Camera returned to main window")
 
 
@@ -811,6 +938,9 @@ class App:
         if self.popout_window is not None:
             self.popout_window.close()
             self.popout_window = None
+
+        # Disable camera focus if it was active
+        self._disable_camera_keyboard_focus()
 
         self.set_status("Camera stopped.")
         # Auto-hide if camera stopped
@@ -1794,10 +1924,13 @@ class App:
             self.vars_tree.insert("", "end", values=(k, json.dumps(v, ensure_ascii=False)))
 
     def run_script(self):
+        # Turn off keyboard control so we don't fight the script
         if self.kb_enabled.get():
-            # Turn off manual so we don't fight the script
             self.kb_enabled.set(False)
-            self._release_all_keyboard_buttons()
+        if self.kb_camera_focused:
+            self.kb_camera_focused = False
+        self._release_all_keyboard_buttons()
+
         try:
             self.engine.rebuild_indexes(strict=True)  # strict only when running
             self.engine.run()

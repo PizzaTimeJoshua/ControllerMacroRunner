@@ -95,7 +95,7 @@ class CameraPopoutWindow:
         # Bind events
         self.video_label.bind("<Motion>", self._on_video_mouse_move)
         self.video_label.bind("<Leave>", self._on_video_mouse_leave)
-        self.video_label.bind("<Button-1>", self._on_video_click_copy)
+        self.video_label.bind("<Button-1>", self._on_video_click)
         self.video_label.bind("<Shift-Button-1>", self._on_video_click_copy_json)
         self.video_label.bind("<Double-Button-1>", self._toggle_fullscreen)
 
@@ -219,19 +219,32 @@ class CameraPopoutWindow:
         self._last_video_xy = None
         self.coord_var.set("x: -, y: -")
 
-    def _on_video_click_copy(self, event):
-        """Copy coordinates on click"""
+    def _on_video_click(self, event):
+        """Handle click on video - enables keyboard focus and copies coords"""
+        # Enable keyboard focus when clicking on camera frame
+        if hasattr(self.app, '_enable_camera_keyboard_focus'):
+            self.app._enable_camera_keyboard_focus(event)
+
+        # Copy coordinates
         xy = self._event_to_frame_xy(event) or self._last_video_xy
         if xy is None:
-            self.app.set_status("No coords to copy.")
             return
         x, y = xy
         s = f"{x},{y}"
         self.app._copy_to_clipboard(s)
-        self.app.set_status(f"Copied coords: {s}")
+
+        # Show combined status
+        if hasattr(self.app, 'kb_camera_focused') and self.app.kb_camera_focused:
+            self.app.set_status(f"Keyboard Control: Active | Coords: {s}")
+        else:
+            self.app.set_status(f"Copied coords: {s}")
 
     def _on_video_click_copy_json(self, event):
         """Copy coordinates as JSON on Shift+click"""
+        # Enable keyboard focus when clicking on camera frame
+        if hasattr(self.app, '_enable_camera_keyboard_focus'):
+            self.app._enable_camera_keyboard_focus(event)
+
         xy = self._event_to_frame_xy(event) or self._last_video_xy
         if xy is None:
             self.app.set_status("No coords to copy.")
