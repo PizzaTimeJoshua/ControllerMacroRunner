@@ -86,11 +86,12 @@ class App:
         self.root.bind_all("<KeyPress>", self._on_key_press)
         self.root.bind_all("<KeyRelease>", self._on_key_release)
 
-        # Override Button/Checkbutton class bindings for Space/Return to prevent
-        # them from activating when keyboard control is active
-        for widget_class in ("TButton", "Button", "TCheckbutton", "Checkbutton"):
-            self.root.bind_class(widget_class, "<space>", self._intercept_button_key, add=True)
-            self.root.bind_class(widget_class, "<Return>", self._intercept_button_key, add=True)
+        # Disable keyboard focus on all buttons/checkbuttons to prevent
+        # Space/Return from activating them while using keyboard control
+        style = ttk.Style()
+        style.configure("TButton", takefocus=0)
+        style.configure("TCheckbutton", takefocus=0)
+        style.configure("TRadiobutton", takefocus=0)
 
         # Global click event to detect focus loss (clicking outside camera frame)
         self.root.bind_all("<Button-1>", self._check_focus_loss, add="+")
@@ -596,18 +597,6 @@ class App:
 
         # Click was elsewhere - disable focus
         self._disable_camera_keyboard_focus()
-
-    def _intercept_button_key(self, event):
-        """
-        Intercept Space/Return on Button widgets when keyboard control is active.
-        This runs BEFORE the default button activation binding.
-        Returns "break" to prevent button activation when controlling.
-        """
-        if self._manual_control_allowed():
-            ks = self._normalize_keysym(event)
-            if ks and ks in self.kb_bindings:
-                return "break"  # Block button activation
-        return None  # Allow normal button behavior
 
     def _on_key_press(self, event):
         if not self._manual_control_allowed():
