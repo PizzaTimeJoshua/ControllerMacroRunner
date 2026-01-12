@@ -16,6 +16,11 @@ from tkinter import messagebox
 # Optional OCR support via pytesseract
 try:
     import pytesseract
+    from utils import tesseract_path
+    # Configure pytesseract to use bundled binary if available
+    _tesseract_cmd = tesseract_path()
+    if _tesseract_cmd != "tesseract":
+        pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
     PYTESSERACT_AVAILABLE = True
 except ImportError:
     PYTESSERACT_AVAILABLE = False

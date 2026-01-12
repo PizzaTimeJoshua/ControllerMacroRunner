@@ -122,8 +122,8 @@ py -m pip install pyaudio pytesseract opencv-python
 **Note for PyAudio on Windows:** If pip install fails, download the appropriate wheel from [Unofficial Windows Binaries](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio).
 
 **Note for pytesseract:** You also need to install Tesseract OCR:
-- Windows: Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
-- Add Tesseract to your PATH or set `pytesseract.pytesseract.tesseract_cmd`
+- **Option A: Bundled (Recommended)** - Place `tesseract.exe` in the `bin/` folder (auto-detected)
+- **Option B: System PATH** - Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) and add to PATH
 
 ### Step 4: Install FFmpeg
 
@@ -160,7 +160,8 @@ ControllerMacroRunner/
   py_scripts/             # Custom Python helpers - auto-created
   bin/
     ffmpeg.exe            # FFmpeg binary
-    *.dll                 # FFmpeg dependencies
+    tesseract.exe         # Tesseract OCR binary (optional)
+    *.dll                 # FFmpeg/Tesseract dependencies
 ```
 
 ---
@@ -719,7 +720,7 @@ Click **Keybinds...** to open the keybind configuration window:
 **pytesseract not found:**
 1. Install pytesseract: `pip install pytesseract`
 2. Install Tesseract OCR from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
-3. Add Tesseract to your PATH
+3. Place `tesseract.exe` in the `bin/` folder (recommended), or add to your PATH
 
 **Poor recognition:**
 - Increase the `scale` parameter (4-8 for pixel fonts)
