@@ -10,6 +10,7 @@ import sys
 import ast
 import math
 import re
+import random
 from tkinter import messagebox
 
 # Optional OCR support via pytesseract
@@ -693,6 +694,8 @@ class ScriptEngine:
         self._unclosed_ifs = []
         self._unclosed_whiles = []
 
+        # Initialize random seed to current time
+        random.seed(time.time())
 
         self.registry = self._build_default_registry()
 
@@ -878,6 +881,11 @@ class ScriptEngine:
             haystack = c.get("haystack", "")
             out = c.get("out", "found")
             return f"Contains {needle!r} in {haystack!r} -> ${out}"
+
+        def fmt_random(c):
+            choices = c.get("choices", [])
+            out = c.get("out", "random_value")
+            return f"Random choice from {choices!r} -> ${out}"
 
         # ---- execution fns
         def cmd_wait(ctx, c):
@@ -1143,6 +1151,37 @@ class ScriptEngine:
 
             ctx["vars"][out] = result
 
+        def cmd_random(ctx, c):
+            """
+            Randomly select a value from the provided choices list.
+            Stores the selected value in the output variable.
+            """
+            choices_raw = c.get("choices", [])
+
+            # Resolve variables in the choices list
+            if isinstance(choices_raw, str) and choices_raw.startswith("$"):
+                # If choices is a variable reference, resolve it
+                choices = resolve_value(ctx, choices_raw)
+            else:
+                # Otherwise, resolve each element in the list
+                choices = resolve_vars_deep(ctx, choices_raw)
+
+            out = c.get("out", "random_value")
+
+            # Validate that choices is a list
+            if not isinstance(choices, list):
+                messagebox.showerror("random: choices must be a list")
+                return
+
+            # Validate that choices is not empty
+            if len(choices) == 0:
+                messagebox.showerror("random: choices list cannot be empty")
+                return
+
+            # Select a random choice
+            selected = random.choice(choices)
+            ctx["vars"][out] = selected
+
         def cmd_type_name(ctx, c):
             """
             Types a name on Pokemon FRLG/RSE naming screens.
@@ -1392,6 +1431,18 @@ class ScriptEngine:
                 format_fn=fmt_contains,
                 group="Variables",
                 order=30,
+                exportable=True
+            ),
+            CommandSpec(
+                "random", ["choices", "out"], cmd_random,
+                doc="Randomly select one value from a list of choices. Stores selected value in $out.",
+                arg_schema=[
+                    {"key": "choices", "type": "json", "default": [1, 2, 3, 4, 5], "help": "List of values to choose from (literal list or $var)"},
+                    {"key": "out", "type": "str", "default": "random_value", "help": "Variable name to store selected value (no $)"},
+                ],
+                format_fn=fmt_random,
+                group="Variables",
+                order=40,
                 exportable=True
             ),
             CommandSpec(

@@ -302,6 +302,39 @@ Check if a value exists in another (like Python's `in` operator).
 ```
 Works with strings (substring check) and lists (membership check).
 
+#### random
+Randomly select one value from a list of choices.
+
+```json
+{"cmd": "random", "choices": [1, 2, 3, 4, 5], "out": "random_value"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| choices | list | required | List of values to choose from (literal list or $var) |
+| out | string | "random_value" | Variable name to store selected value (no $) |
+
+**Examples:**
+
+**Random number from a list:**
+```json
+{"cmd": "random", "choices": [100, 200, 300, 400, 500], "out": "wait_time"}
+{"cmd": "wait", "ms": "$wait_time"}
+```
+
+**Random button selection:**
+```json
+{"cmd": "random", "choices": ["A", "B", "X", "Y"], "out": "button"}
+{"cmd": "press", "buttons": ["$button"], "ms": 50}
+```
+
+**Random choice from a variable:**
+```json
+{"cmd": "set", "var": "options", "value": ["up", "down", "left", "right"]}
+{"cmd": "random", "choices": "$options", "out": "direction"}
+```
+
+**Note:** The random number generator is seeded with the current time when the script engine starts, ensuring different random sequences on each run.
+
 ### Control Flow Commands
 
 #### label / goto
@@ -504,6 +537,7 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | mash | Yes | Loop with timing |
 | set, add | Yes | Python variables |
 | contains | Yes | Python `in` operator |
+| random | Yes | Python `random.choice()` |
 | if/end_if | Yes | Python if statements |
 | while/end_while | Yes | Python while loops |
 | run_python | Yes | Subprocess call |

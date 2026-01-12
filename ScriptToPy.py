@@ -96,6 +96,20 @@ def export_script_to_python(self):
             if outv:
                 used_vars.add(outv)
 
+        if cmd == "random":
+            # Check if choices is a variable reference
+            choices = c.get("choices")
+            if isinstance(choices, str) and choices.startswith("$"):
+                used_vars.add(choices[1:])
+            # Also check for variables inside the choices list
+            elif isinstance(choices, list):
+                for item in choices:
+                    if isinstance(item, str) and item.startswith("$"):
+                        used_vars.add(item[1:])
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
         if cmd == "run_python":
             args = c.get("args", [])
             if isinstance(args, list):
@@ -227,6 +241,12 @@ def export_script_to_python(self):
             emit(f"except TypeError:")
             emit(f"    {pyv} = False")
 
+        elif cmd == "random":
+            choices = op_to_py(c.get("choices"))
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+            emit(f"{pyv} = random.choice({choices})")
+
         elif cmd == "if":
             left = op_to_py(c.get("left"))
             op = c.get("op")
@@ -263,11 +283,12 @@ def export_script_to_python(self):
         emit("")
 
     uses_run_python = any(c.get("cmd") == "run_python" for c in commands)
+    uses_random = any(c.get("cmd") == "random" for c in commands)
 
     # -------------------------
     # 5) Exported file header
     # -------------------------
-    # 
+    #
     default_port = "COM4"
     try:
         if hasattr(self, "com_var"):
@@ -281,6 +302,8 @@ def export_script_to_python(self):
     exported.append("import time")
     exported.append("import serial")
     exported.append("import math")
+    if uses_random:
+        exported.append("import random")
     exported.append("")
     exported.append("# =========================")
     exported.append("# User-editable settings")
@@ -351,6 +374,10 @@ def export_script_to_python(self):
 
     # Main
     exported.append("def main():")
+    if uses_random:
+        exported.append("    # Initialize random seed to current time")
+        exported.append("    random.seed(time.time())")
+        exported.append("")
     exported.append("    ser = serial.Serial(PORT, BAUD, timeout=1)")
     exported.append("    current_buttons = []  # held buttons")
     exported.append("")
