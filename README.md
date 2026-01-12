@@ -302,6 +302,113 @@ Check if a value exists in another (like Python's `in` operator).
 ```
 Works with strings (substring check) and lists (membership check).
 
+#### random
+Randomly select one value from a list of choices.
+
+```json
+{"cmd": "random", "choices": [1, 2, 3, 4, 5], "out": "random_value"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| choices | list | required | List of values to choose from (literal list or $var) |
+| out | string | "random_value" | Variable name to store selected value (no $) |
+
+**Examples:**
+
+**Random number from a list:**
+```json
+{"cmd": "random", "choices": [100, 200, 300, 400, 500], "out": "wait_time"}
+{"cmd": "wait", "ms": "$wait_time"}
+```
+
+**Random button selection:**
+```json
+{"cmd": "random", "choices": ["A", "B", "X", "Y"], "out": "button"}
+{"cmd": "press", "buttons": ["$button"], "ms": 50}
+```
+
+**Random choice from a variable:**
+```json
+{"cmd": "set", "var": "options", "value": ["up", "down", "left", "right"]}
+{"cmd": "random", "choices": "$options", "out": "direction"}
+```
+
+**Note:** The random number generator is seeded with the current time when the script engine starts, ensuring different random sequences on each run.
+
+#### random_range
+Generate a random number between min and max (inclusive).
+
+```json
+{"cmd": "random_range", "min": 0, "max": 100, "integer": false, "out": "random_value"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| min | number | 0 | Minimum value (inclusive, supports $var and =expr) |
+| max | number | 100 | Maximum value (inclusive, supports $var and =expr) |
+| integer | bool | false | If true, returns integer; if false, returns float |
+| out | string | "random_value" | Variable name to store result (no $) |
+
+**Examples:**
+
+**Random integer for dice roll (1-6):**
+```json
+{"cmd": "random_range", "min": 1, "max": 6, "integer": true, "out": "dice"}
+{"cmd": "wait", "ms": "=$dice * 100"}
+```
+
+**Random float for timing variation:**
+```json
+{"cmd": "random_range", "min": 0.5, "max": 2.0, "integer": false, "out": "multiplier"}
+{"cmd": "set", "var": "wait_time", "value": "=100 * $multiplier"}
+{"cmd": "wait", "ms": "$wait_time"}
+```
+
+**Random range with variables:**
+```json
+{"cmd": "set", "var": "min_wait", "value": 50}
+{"cmd": "set", "var": "max_wait", "value": 150}
+{"cmd": "random_range", "min": "$min_wait", "max": "$max_wait", "integer": true, "out": "delay"}
+{"cmd": "wait", "ms": "$delay"}
+```
+
+#### random_value
+Generate a random float between 0.0 and 1.0 (exclusive of 1.0).
+
+```json
+{"cmd": "random_value", "out": "random_value"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| out | string | "random_value" | Variable name to store result (no $) |
+
+**Examples:**
+
+**Random probability check (50% chance):**
+```json
+{"cmd": "random_value", "out": "chance"}
+{"cmd": "if", "left": "$chance", "op": "<", "right": 0.5}
+  {"cmd": "press", "buttons": ["A"], "ms": 50}
+{"cmd": "end_if"}
+```
+
+**Random scaling for wait time:**
+```json
+{"cmd": "random_value", "out": "scale"}
+{"cmd": "set", "var": "wait_time", "value": "=50 + $scale * 100"}
+{"cmd": "wait", "ms": "$wait_time"}
+```
+
+**Random weighted decision (30% chance for action A, 70% for action B):**
+```json
+{"cmd": "random_value", "out": "roll"}
+{"cmd": "if", "left": "$roll", "op": "<", "right": 0.3}
+  {"cmd": "press", "buttons": ["A"], "ms": 50}
+{"cmd": "end_if"}
+{"cmd": "if", "left": "$roll", "op": ">=", "right": 0.3}
+  {"cmd": "press", "buttons": ["B"], "ms": 50}
+{"cmd": "end_if"}
+```
+
 ### Control Flow Commands
 
 #### label / goto
@@ -504,6 +611,9 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | mash | Yes | Loop with timing |
 | set, add | Yes | Python variables |
 | contains | Yes | Python `in` operator |
+| random | Yes | Python `random.choice()` |
+| random_range | Yes | Python `random.randint()` or `random.uniform()` |
+| random_value | Yes | Python `random.random()` |
 | if/end_if | Yes | Python if statements |
 | while/end_while | Yes | Python while loops |
 | run_python | Yes | Subprocess call |

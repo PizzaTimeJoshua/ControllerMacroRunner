@@ -96,6 +96,35 @@ def export_script_to_python(self):
             if outv:
                 used_vars.add(outv)
 
+        if cmd == "random":
+            # Check if choices is a variable reference
+            choices = c.get("choices")
+            if isinstance(choices, str) and choices.startswith("$"):
+                used_vars.add(choices[1:])
+            # Also check for variables inside the choices list
+            elif isinstance(choices, list):
+                for item in choices:
+                    if isinstance(item, str) and item.startswith("$"):
+                        used_vars.add(item[1:])
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
+        if cmd == "random_range":
+            # Check for variables in min, max, and integer
+            for key in ("min", "max", "integer"):
+                v = c.get(key)
+                if isinstance(v, str) and v.startswith("$"):
+                    used_vars.add(v[1:])
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
+        if cmd == "random_value":
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
         if cmd == "run_python":
             args = c.get("args", [])
             if isinstance(args, list):
@@ -227,6 +256,52 @@ def export_script_to_python(self):
             emit(f"except TypeError:")
             emit(f"    {pyv} = False")
 
+        elif cmd == "random":
+            choices_raw = c.get("choices")
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+
+            # Handle choices - could be a variable reference or a literal list
+            if isinstance(choices_raw, str) and choices_raw.startswith("$"):
+                # Entire choices list is a variable
+                choices_expr = op_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
+            elif isinstance(choices_raw, list):
+                # List with potential variable references inside
+                choices_expr = args_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
+            else:
+                # Fallback for unexpected types
+                choices_expr = op_to_py(choices_raw)
+                emit(f"{pyv} = random.choice({choices_expr})")
+
+        elif cmd == "random_range":
+            min_val = op_to_py(c.get("min"))
+            max_val = op_to_py(c.get("max"))
+            integer_raw = c.get("integer", False)
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+
+            # Handle integer parameter - could be a literal or variable
+            if isinstance(integer_raw, bool):
+                # Literal boolean - can decide at export time
+                if integer_raw:
+                    emit(f"{pyv} = random.randint(int({min_val}), int({max_val}))")
+                else:
+                    emit(f"{pyv} = random.uniform({min_val}, {max_val})")
+            else:
+                # Variable or expression - need runtime check
+                integer_expr = op_to_py(integer_raw)
+                emit(f"if {integer_expr}:")
+                emit(f"    {pyv} = random.randint(int({min_val}), int({max_val}))")
+                emit(f"else:")
+                emit(f"    {pyv} = random.uniform({min_val}, {max_val})")
+
+        elif cmd == "random_value":
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+            emit(f"{pyv} = random.random()")
+
         elif cmd == "if":
             left = op_to_py(c.get("left"))
             op = c.get("op")
@@ -263,11 +338,12 @@ def export_script_to_python(self):
         emit("")
 
     uses_run_python = any(c.get("cmd") == "run_python" for c in commands)
+    uses_random = any(c.get("cmd") in ("random", "random_range", "random_value") for c in commands)
 
     # -------------------------
     # 5) Exported file header
     # -------------------------
-    # 
+    #
     default_port = "COM4"
     try:
         if hasattr(self, "com_var"):
@@ -281,6 +357,8 @@ def export_script_to_python(self):
     exported.append("import time")
     exported.append("import serial")
     exported.append("import math")
+    if uses_random:
+        exported.append("import random")
     exported.append("")
     exported.append("# =========================")
     exported.append("# User-editable settings")
@@ -351,6 +429,10 @@ def export_script_to_python(self):
 
     # Main
     exported.append("def main():")
+    if uses_random:
+        exported.append("    # Initialize random seed to current time")
+        exported.append("    random.seed(time.time())")
+        exported.append("")
     exported.append("    ser = serial.Serial(PORT, BAUD, timeout=1)")
     exported.append("    current_buttons = []  # held buttons")
     exported.append("")
