@@ -619,7 +619,7 @@ export_script_to_python(self)
 3. **No backwards-compatibility hacks**: Delete unused code completely, don't comment it out
 4. **Security awareness**: Watch for command injection, XSS in script execution
 5. **Thread safety**: Be aware of frame lock when accessing `latest_frame_bgr`
-6. **Verify Code Integrity**: Check all code and fix any potential bugs
+6. **Verify Code Integrity**: Review all code and fix any potential bugs
 
 ### File Operation Patterns
 
