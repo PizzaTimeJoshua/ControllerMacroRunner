@@ -6,6 +6,7 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk
 import json
+import numpy as np
 from PIL import Image, ImageTk
 
 from utils import ffmpeg_path
@@ -898,8 +899,6 @@ class AreaColorPickerWindow:
 
     def _update_frame(self):
         """Draw current frame with selection rectangle overlay and calculate average color"""
-        import numpy as np
-
         with self.app.frame_lock:
             frame = self.app.latest_frame_bgr
             if frame is None:
@@ -966,8 +965,6 @@ class AreaColorPickerWindow:
 
     def _update_avg_color(self, frame, x, y, w, h):
         """Calculate and display the average color of the selected region."""
-        import numpy as np
-
         # Clamp region to frame bounds
         x = max(0, min(x, self._frame_w - 1))
         y = max(0, min(y, self._frame_h - 1))

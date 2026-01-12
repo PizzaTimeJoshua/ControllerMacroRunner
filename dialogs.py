@@ -14,7 +14,8 @@ class CommandEditorDialog(tk.Toplevel):
     """Dialog for editing script commands with schema-driven fields."""
 
     def __init__(self, parent, registry, initial_cmd=None, title="Edit Command",
-                 test_callback=None, select_area_callback=None, select_color_callback=None):
+                 test_callback=None, select_area_callback=None, select_color_callback=None,
+                 select_area_color_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.registry = registry
@@ -22,6 +23,7 @@ class CommandEditorDialog(tk.Toplevel):
         self.test_callback = test_callback
         self.select_area_callback = select_area_callback  # Callback for region selection
         self.select_color_callback = select_color_callback  # Callback for color picker
+        self.select_area_color_callback = select_area_color_callback  # Callback for area+color picker
 
         self.title(title)
         self.transient(parent)
@@ -334,7 +336,7 @@ class CommandEditorDialog(tk.Toplevel):
             ).pack(side="left", padx=(10, 0))
 
         # Add "Select Area & Color from Camera" button for find_area_color command
-        if name == "find_area_color":
+        if name == "find_area_color" and self.select_area_color_callback:
             next_row = len(spec.arg_schema)
             area_color_frame = ttk.Frame(self.fields_frame)
             area_color_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
@@ -563,16 +565,7 @@ class CommandEditorDialog(tk.Toplevel):
 
     def _open_area_color_picker(self):
         """Open the area color picker for find_area_color command."""
-        # Import locally to avoid circular imports
-        from camera import AreaColorPickerWindow
-
-        if not self.parent.cam_running:
-            from tkinter import messagebox
-            messagebox.showwarning(
-                "Camera Required",
-                "Please start the camera first to select an area and color.",
-                parent=self
-            )
+        if not self.select_area_color_callback:
             return
 
         # Get current values to use as initial selection
@@ -601,14 +594,13 @@ class CommandEditorDialog(tk.Toplevel):
         # Release grab temporarily so the picker window can work
         self.grab_release()
 
-        # Open the area color picker window
-        AreaColorPickerWindow(
-            self.parent,
-            self._on_area_color_selected,
-            initial_region=initial_region,
-            initial_rgb=initial_rgb,
-            on_close_callback=self._restore_grab
-        )
+        # Call the callback to open the picker
+        # It returns True if picker was opened, False otherwise
+        # Pass _restore_grab as on_close callback to ensure grab is restored when picker closes
+        opened = self.select_area_color_callback(initial_region, initial_rgb, self._on_area_color_selected, self._restore_grab)
+        if not opened:
+            # Picker wasn't opened (e.g., camera not running), restore grab
+            self._restore_grab()
 
     def _on_area_color_selected(self, x, y, width, height, r, g, b):
         """Callback when an area and color are selected."""

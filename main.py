@@ -1639,7 +1639,8 @@ class App:
             initial_cmd=None, title="Add Command",
             test_callback=self._dialog_test_callback,
             select_area_callback=self._open_region_selector,
-            select_color_callback=self._open_color_picker
+            select_color_callback=self._open_color_picker,
+            select_area_color_callback=self._open_area_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1671,7 +1672,8 @@ class App:
             initial_cmd=initial, title="Edit Command",
             test_callback=self._dialog_test_callback,
             select_area_callback=self._open_region_selector,
-            select_color_callback=self._open_color_picker
+            select_color_callback=self._open_color_picker,
+            select_area_color_callback=self._open_area_color_picker
         )
         self.root.wait_window(dlg)
         if dlg.result is None:
@@ -1785,6 +1787,35 @@ class App:
 
         # Open the color picker window
         ColorPickerWindow(self, on_select_callback, initial_x=initial_x, initial_y=initial_y, on_close_callback=on_close_callback)
+        return True
+
+    def _open_area_color_picker(self, initial_region, initial_rgb, on_select_callback, on_close_callback=None):
+        """
+        Open the area color picker window for selecting an area and color from the camera.
+
+        Args:
+            initial_region: Optional tuple (x, y, width, height) to show initially
+            initial_rgb: Optional tuple/list (r, g, b) for initial target color
+            on_select_callback: Callback with (x, y, width, height, r, g, b) when confirmed
+            on_close_callback: Optional callback called when window closes (for any reason)
+
+        Returns:
+            True if the picker window was opened, False otherwise
+        """
+        if not self.cam_running:
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to select an area and color.",
+                parent=self.root
+            )
+            return False
+
+        # Import here to avoid circular import
+        from camera import AreaColorPickerWindow
+
+        # Open the area color picker window
+        AreaColorPickerWindow(self, on_select_callback, initial_region=initial_region,
+                            initial_rgb=initial_rgb, on_close_callback=on_close_callback)
         return True
 
     def test_command_dialog(self, cmd_obj):
