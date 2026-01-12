@@ -846,6 +846,12 @@ class ScriptEngine:
         def fmt_end_while(c): return "End While"
         def fmt_find_color(c):
             return f"FindColor ({c.get('x')},{c.get('y')}) ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} -> ${c.get('out')}"
+        def fmt_find_area_color(c):
+            x = c.get('x', 0)
+            y = c.get('y', 0)
+            w = c.get('width', 10)
+            h = c.get('height', 10)
+            return f"FindAreaColor ({x},{y}) {w}x{h} ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} -> ${c.get('out')}"
         def fmt_comment(c): return f"// {c.get('text','')}"
         def fmt_run_python(c):
             out = c.get("out")
@@ -1013,6 +1019,50 @@ class ScriptEngine:
 
             # Use CIE76 Delta E for perceptually accurate color comparison
             delta_e = delta_e_cie76(sample_rgb, target)
+            ok = delta_e <= tol
+            ctx["vars"][out] = ok
+
+        def cmd_find_area_color(ctx, c):
+            """Find average color in an area and compare to target."""
+            frame = ctx["get_frame"]()
+            out = c.get("out", "match")
+
+            if frame is None:
+                ctx["vars"][out] = False
+                return
+
+            x = int(resolve_value(ctx, c.get("x", 0)))
+            y = int(resolve_value(ctx, c.get("y", 0)))
+            width = int(resolve_value(ctx, c.get("width", 10)))
+            height = int(resolve_value(ctx, c.get("height", 10)))
+
+            h_frame, w_frame, _ = frame.shape
+
+            # Clamp region to frame bounds
+            x = max(0, min(x, w_frame - 1))
+            y = max(0, min(y, h_frame - 1))
+            x2 = max(x + 1, min(x + width, w_frame))
+            y2 = max(y + 1, min(y + height, h_frame))
+
+            # Extract region (BGR)
+            region_bgr = frame[y:y2, x:x2]
+
+            # Calculate average color
+            if region_bgr.size == 0:
+                ctx["vars"][out] = False
+                return
+
+            # Compute mean color across all pixels in the region
+            avg_b = float(np.mean(region_bgr[:, :, 0]))
+            avg_g = float(np.mean(region_bgr[:, :, 1]))
+            avg_r = float(np.mean(region_bgr[:, :, 2]))
+
+            avg_rgb = (int(avg_r), int(avg_g), int(avg_b))
+            target = (int(c["rgb"][0]), int(c["rgb"][1]), int(c["rgb"][2]))
+            tol = float(c.get("tol", 10))
+
+            # Use CIE76 Delta E for perceptually accurate color comparison
+            delta_e = delta_e_cie76(avg_rgb, target)
             ok = delta_e <= tol
             ctx["vars"][out] = ok
 
@@ -1565,6 +1615,25 @@ class ScriptEngine:
                 group="Image",
                 order=10,
                 test = True,
+                exportable=False,
+                export_note="Requires camera frame processing which is unsupported at the moment."
+            ),
+            CommandSpec(
+                "find_area_color", ["x", "y", "width", "height", "rgb", "out"], cmd_find_area_color,
+                doc="Calculate average color in an area and compare to target rgb using CIE76 Delta E. Stores bool in $out.",
+                arg_schema=[
+                    {"key": "x", "type": "int", "default": 0, "help": "X coordinate (top-left corner)"},
+                    {"key": "y", "type": "int", "default": 0, "help": "Y coordinate (top-left corner)"},
+                    {"key": "width", "type": "int", "default": 10, "help": "Width of region"},
+                    {"key": "height", "type": "int", "default": 10, "help": "Height of region"},
+                    {"key": "rgb", "type": "rgb", "default": [255, 0, 0], "help": "Target RGB as [R,G,B]"},
+                    {"key": "tol", "type": "float", "default": 10, "help": "Delta E tolerance (0-1: imperceptible, 2-10: noticeable, 10+: obvious)"},
+                    {"key": "out", "type": "str", "default": "match", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_find_area_color,
+                group="Image",
+                order=11,
+                test=True,
                 exportable=False,
                 export_note="Requires camera frame processing which is unsupported at the moment."
             ),

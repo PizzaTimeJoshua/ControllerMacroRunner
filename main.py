@@ -1844,6 +1844,79 @@ class App:
                 )
                 return ("find_color Test", msg)
 
+            case "find_area_color":
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("find_area_color Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                width = int(self._resolve_test_value(cmd_obj.get("width", 10)))
+                height = int(self._resolve_test_value(cmd_obj.get("height", 10)))
+                rgb = cmd_obj.get("rgb", [0, 0, 0])
+                tol = float(self._resolve_test_value(cmd_obj.get("tol", 10)))
+                out = (cmd_obj.get("out") or "match").strip()
+
+                h_frame, w_frame, _ = frame.shape
+
+                # Clamp region to frame bounds
+                x = max(0, min(x, w_frame - 1))
+                y = max(0, min(y, h_frame - 1))
+                x2 = max(x + 1, min(x + width, w_frame))
+                y2 = max(y + 1, min(y + height, h_frame))
+
+                # Check bounds
+                if x >= w_frame or y >= h_frame:
+                    return ("find_area_color Test",
+                            f"Region out of bounds.\n"
+                            f"Top-left: ({x},{y})\n"
+                            f"Frame size: {w_frame}x{h_frame}")
+
+                # Extract region (BGR)
+                region_bgr = frame[y:y2, x:x2]
+
+                if region_bgr.size == 0:
+                    return ("find_area_color Test", "Region is empty (size is 0).")
+
+                # Calculate average color
+                avg_b = float(np.mean(region_bgr[:, :, 0]))
+                avg_g = float(np.mean(region_bgr[:, :, 1]))
+                avg_r = float(np.mean(region_bgr[:, :, 2]))
+
+                avg_rgb = (int(avg_r), int(avg_g), int(avg_b))
+                target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+
+                # Calculate CIE76 Delta E
+                delta_e = ScriptEngine.delta_e_cie76(avg_rgb, target)
+                ok = delta_e <= tol
+
+                # Interpretation of Delta E values
+                if delta_e <= 1:
+                    perception = "imperceptible"
+                elif delta_e <= 2:
+                    perception = "barely perceptible"
+                elif delta_e <= 10:
+                    perception = "noticeable"
+                elif delta_e <= 49:
+                    perception = "obvious"
+                else:
+                    perception = "very different"
+
+                actual_w = x2 - x
+                actual_h = y2 - y
+
+                msg = (
+                    f"Region: ({x},{y}) {actual_w}x{actual_h}\n"
+                    f"Pixels sampled: {region_bgr.shape[0] * region_bgr.shape[1]}\n\n"
+                    f"Average RGB: {list(avg_rgb)}\n"
+                    f"Target RGB:  {list(target)}\n\n"
+                    f"Delta E (CIE76): {delta_e:.2f} ({perception})\n"
+                    f"Tolerance: {tol}\n\n"
+                    f"Result (would set ${out}): {ok}"
+                )
+                return ("find_area_color Test", msg)
+
             case "read_text":
                 # Check if pytesseract is available
                 if not ScriptEngine.PYTESSERACT_AVAILABLE:
@@ -1913,7 +1986,7 @@ class App:
         # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color" | "read_text":
+            case "find_color" | "find_area_color" | "read_text":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")

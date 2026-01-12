@@ -333,6 +333,23 @@ class CommandEditorDialog(tk.Toplevel):
                 foreground="gray"
             ).pack(side="left", padx=(10, 0))
 
+        # Add "Select Area & Color from Camera" button for find_area_color command
+        if name == "find_area_color":
+            next_row = len(spec.arg_schema)
+            area_color_frame = ttk.Frame(self.fields_frame)
+            area_color_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+
+            ttk.Button(
+                area_color_frame, text="Select Area & Color from Camera",
+                command=self._open_area_color_picker
+            ).pack(side="left")
+
+            ttk.Label(
+                area_color_frame,
+                text="Click to visually select area and target color from camera feed",
+                foreground="gray"
+            ).pack(side="left", padx=(10, 0))
+
         # Enable Test only if provided and command is supported
         if self.test_callback is None or spec.test == False:
             self.test_btn.pack_forget()
@@ -537,6 +554,73 @@ class CommandEditorDialog(tk.Toplevel):
             self.field_vars["x"].set(str(x))
         if "y" in self.field_vars:
             self.field_vars["y"].set(str(y))
+        if "rgb" in self.field_vars:
+            self.field_vars["rgb"].set(f"{r},{g},{b}")
+
+        # Re-grab focus
+        self.grab_set()
+        self.focus_set()
+
+    def _open_area_color_picker(self):
+        """Open the area color picker for find_area_color command."""
+        # Import locally to avoid circular imports
+        from camera import AreaColorPickerWindow
+
+        if not self.parent.cam_running:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Camera Required",
+                "Please start the camera first to select an area and color.",
+                parent=self
+            )
+            return
+
+        # Get current values to use as initial selection
+        initial_region = None
+        initial_rgb = None
+        try:
+            x = int(self.field_vars.get("x", tk.StringVar(value="0")).get())
+            y = int(self.field_vars.get("y", tk.StringVar(value="0")).get())
+            w = int(self.field_vars.get("width", tk.StringVar(value="10")).get())
+            h = int(self.field_vars.get("height", tk.StringVar(value="10")).get())
+            if w > 0 and h > 0:
+                initial_region = (x, y, w, h)
+
+            # Get RGB if available
+            rgb_var = self.field_vars.get("rgb")
+            if rgb_var:
+                rgb_text = rgb_var.get().strip()
+                if rgb_text.startswith("["):
+                    initial_rgb = json.loads(rgb_text)
+                else:
+                    parts = [p.strip() for p in rgb_text.split(",")]
+                    initial_rgb = [int(parts[0]), int(parts[1]), int(parts[2])]
+        except (ValueError, TypeError, IndexError):
+            pass
+
+        # Release grab temporarily so the picker window can work
+        self.grab_release()
+
+        # Open the area color picker window
+        AreaColorPickerWindow(
+            self.parent,
+            self._on_area_color_selected,
+            initial_region=initial_region,
+            initial_rgb=initial_rgb,
+            on_close_callback=self._restore_grab
+        )
+
+    def _on_area_color_selected(self, x, y, width, height, r, g, b):
+        """Callback when an area and color are selected."""
+        # Update the field values
+        if "x" in self.field_vars:
+            self.field_vars["x"].set(str(x))
+        if "y" in self.field_vars:
+            self.field_vars["y"].set(str(y))
+        if "width" in self.field_vars:
+            self.field_vars["width"].set(str(width))
+        if "height" in self.field_vars:
+            self.field_vars["height"].set(str(height))
         if "rgb" in self.field_vars:
             self.field_vars["rgb"].set(f"{r},{g},{b}")
 
