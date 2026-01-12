@@ -12,21 +12,49 @@ def resource_path(rel_path: str) -> str:
     return os.path.join(base, rel_path)
 
 
+def exe_dir_path(rel_path: str) -> str:
+    """Get absolute path relative to the executable's directory.
+
+    When running as a PyInstaller bundle, this returns the path relative to
+    where the .exe is located (not the temp extraction folder).
+    When running from source, this returns the path relative to the script directory.
+    """
+    if getattr(sys, "frozen", False):
+        # Running as PyInstaller bundle - use executable's directory
+        base = os.path.dirname(sys.executable)
+    else:
+        # Running from source - use current working directory
+        base = os.path.abspath(".")
+    return os.path.join(base, rel_path)
+
+
 def ffmpeg_path() -> str:
     """Get path to ffmpeg executable."""
-    # Prefer bundled ffmpeg.exe
+    # Check 1: PyInstaller temp folder (if bundled with --add-data)
     bundled = resource_path("bin/ffmpeg/ffmpeg.exe")
     if os.path.exists(bundled):
         return bundled
+
+    # Check 2: Directory next to the executable (for external bin folder)
+    exe_local = exe_dir_path("bin/ffmpeg/ffmpeg.exe")
+    if os.path.exists(exe_local):
+        return exe_local
+
     return "ffmpeg"  # fallback to PATH
 
 
 def tesseract_path() -> str:
     """Get path to tesseract executable."""
-    # Prefer bundled tesseract.exe
+    # Check 1: PyInstaller temp folder (if bundled with --add-data)
     bundled = resource_path("bin/Tesseract-OCR/tesseract.exe")
     if os.path.exists(bundled):
         return bundled
+
+    # Check 2: Directory next to the executable (for external bin folder)
+    exe_local = exe_dir_path("bin/Tesseract-OCR/tesseract.exe")
+    if os.path.exists(exe_local):
+        return exe_local
+
     return "tesseract"  # fallback to PATH
 
 
