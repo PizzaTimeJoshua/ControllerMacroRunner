@@ -619,6 +619,7 @@ export_script_to_python(self)
 3. **No backwards-compatibility hacks**: Delete unused code completely, don't comment it out
 4. **Security awareness**: Watch for command injection, XSS in script execution
 5. **Thread safety**: Be aware of frame lock when accessing `latest_frame_bgr`
+6. **Verify Code Integrity**: Always check all the implemented code before committing for any potential bugs
 
 ### File Operation Patterns
 
@@ -720,19 +721,6 @@ Edit file with guessed content
 2. **Logical grouping**: Related changes in single commit
 3. **No secrets**: Don't commit `.env`, credentials, etc.
 
-### Current Branch Status
-
-```
-Branch: claude/claude-md-mk4zq9gnf0f2taax-S0jbA
-Status: Clean working tree
-
-Recent commits:
-- 5609a80: Add script export to Python and enhance command handling
-- 4823af9: Revert "Switch script timing to frame-based and add FPS settings"
-- 0ffb4e7: Revert "Adjust sleep precision and improve frame handling"
-```
-
----
 
 ## Quick Reference for AI Assistants
 
@@ -790,5 +778,5 @@ Recent commits:
 
 ---
 
-*Last Updated: 2026-01-11*
+*Last Updated: 2026-01-12*
 *This document is maintained for AI assistants working with the ControllerMacroRunner codebase.*
