@@ -88,10 +88,17 @@ class App:
 
         # Disable keyboard focus on all buttons/checkbuttons to prevent
         # Space/Return from activating them while using keyboard control
-        style = ttk.Style()
-        style.configure("TButton", takefocus=0)
-        style.configure("TCheckbutton", takefocus=0)
-        style.configure("TRadiobutton", takefocus=0)
+        # Bind FocusIn to immediately move focus away from buttons
+        def _skip_button_focus(event):
+            # Move focus to root to skip buttons entirely
+            try:
+                self.root.focus_set()
+            except tk.TclError:
+                pass
+            return "break"
+
+        for widget_class in ("TButton", "Button", "TCheckbutton", "Checkbutton", "TRadiobutton", "Radiobutton"):
+            self.root.bind_class(widget_class, "<FocusIn>", _skip_button_focus)
 
         # Global click event to detect focus loss (clicking outside camera frame)
         self.root.bind_all("<Button-1>", self._check_focus_loss, add="+")
