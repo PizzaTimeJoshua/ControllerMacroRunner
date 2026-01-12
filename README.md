@@ -802,7 +802,7 @@ Use PyInstaller to create a standalone executable:
 ```bat
 py -m pip install pyinstaller
 
-pyinstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
+py -m PyInstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
   --add-data "scripts;scripts" ^
   --add-data "py_scripts;py_scripts" ^
   main.py
