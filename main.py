@@ -1091,19 +1091,13 @@ class App:
             input_channels = min(2, int(input_info.get('maxInputChannels', 1)))
             output_channels = min(2, int(output_info.get('maxOutputChannels', 2)))
 
-            # Debug: Print device information
-            print(f"Input Device: {input_name}")
-            print(f"  Index: {input_idx}, Rate: {input_rate} Hz, Channels: {input_channels}")
-            print(f"Output Device: {output_name}")
-            print(f"  Index: {output_idx}, Rate: {output_rate} Hz, Channels: {output_channels}")
-
             # Use larger buffer for WASAPI stability and reduce callback frequency
-            input_chunk = 2048  # Increased from 1024
-            output_chunk = 4096  # Increased from 2048 for more efficient processing
+            input_chunk = 2048
+            output_chunk = 4096
 
             # Create a larger queue with more buffering to prevent underruns
             import queue
-            self.audio_queue = queue.Queue(maxsize=100)  # Increased from 50
+            self.audio_queue = queue.Queue(maxsize=100)
 
             # Resampling state for smoother conversion
             self.audio_resample_buffer = np.array([], dtype=np.int16)
@@ -1115,42 +1109,28 @@ class App:
             rate_ratio = input_rate / output_rate
             use_simple_resample = abs(rate_ratio - round(rate_ratio)) < 0.01  # Close to integer ratio
 
-            if use_simple_resample:
-                print(f"Using optimized resampling (ratio: {rate_ratio:.2f})")
-            else:
-                print(f"Using linear interpolation (ratio: {rate_ratio:.2f})")
-
             # Try to import scipy for high-quality resampling (optional)
             try:
                 from scipy import signal as scipy_signal
                 use_scipy = True
-                print("Using scipy for high-quality resampling")
             except ImportError:
                 use_scipy = False
                 scipy_signal = None
 
             # Input stream callback - captures audio and puts in queue
             def input_callback(in_data, frame_count, time_info, status):
-                if status:
-                    print(f"Input status: {status}")
                 try:
                     self.audio_queue.put_nowait(in_data)
                 except queue.Full:
                     self.audio_overruns += 1
-                    if self.audio_overruns % 100 == 0:
-                        print(f"Audio overruns: {self.audio_overruns}")
                 return (None, pyaudio.paContinue)
 
             # Output stream callback - gets audio from queue and plays it
             def output_callback(in_data, frame_count, time_info, status):
-                if status:
-                    print(f"Output status: {status}")
-
                 # Wait for queue to fill up a bit before starting (pre-buffering)
                 if not self.audio_prebuffer_ready:
-                    if self.audio_queue.qsize() >= 3:  # Reduced from 5 for lower latency
+                    if self.audio_queue.qsize() >= 3:
                         self.audio_prebuffer_ready = True
-                        print("Audio pre-buffering complete, starting playback...")
                     else:
                         # Still pre-buffering, output silence
                         silence = np.zeros(frame_count * output_channels, dtype=np.int16)
@@ -1172,8 +1152,6 @@ class App:
                     if not accumulated_data:
                         # No data available - underrun
                         self.audio_underruns += 1
-                        if self.audio_underruns % 100 == 0:
-                            print(f"Audio underruns: {self.audio_underruns}")
                         silence = np.zeros(frame_count * output_channels, dtype=np.int16)
                         return (silence.tobytes(), pyaudio.paContinue)
 
@@ -1275,16 +1253,12 @@ class App:
 
                     return (audio_data.tobytes(), pyaudio.paContinue)
 
-                except Exception as e:
-                    print(f"Output callback error: {e}")
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
                     # Output silence on error
                     silence = np.zeros(frame_count * output_channels, dtype=np.int16)
                     return (silence.tobytes(), pyaudio.paContinue)
 
             # Open input stream
-            print(f"Opening input stream: {input_rate} Hz, {input_channels} ch, {input_chunk} buffer...")
             self.audio_input_stream = self.audio_pyaudio.open(
                 format=pyaudio.paInt16,
                 channels=input_channels,
@@ -1296,7 +1270,6 @@ class App:
             )
 
             # Open output stream
-            print(f"Opening output stream: {output_rate} Hz, {output_channels} ch, {output_chunk} buffer...")
             self.audio_output_stream = self.audio_pyaudio.open(
                 format=pyaudio.paInt16,
                 channels=output_channels,
@@ -1321,12 +1294,8 @@ class App:
                 conversion_info += f" [ch: {input_channels}→{output_channels}]"
 
             self.set_status(f"Audio streaming: {input_name} → {output_name}{conversion_info}")
-            print(f"SUCCESS: Audio streaming started{conversion_info}")
 
         except Exception as e:
-            import traceback
-            print(f"Error starting audio: {e}")
-            traceback.print_exc()
             messagebox.showerror("Audio error", f"Failed to start audio:\n{e}")
             self.stop_audio()
 
@@ -1340,8 +1309,8 @@ class App:
                 self.audio_input_stream.stop_stream()
                 self.audio_input_stream.close()
                 self.audio_input_stream = None
-        except Exception as e:
-            print(f"Error stopping input stream: {e}")
+        except Exception:
+            pass
 
         # Stop and close output stream
         try:
@@ -1349,8 +1318,8 @@ class App:
                 self.audio_output_stream.stop_stream()
                 self.audio_output_stream.close()
                 self.audio_output_stream = None
-        except Exception as e:
-            print(f"Error stopping output stream: {e}")
+        except Exception:
+            pass
 
         # Legacy support for old single stream
         try:
@@ -1380,7 +1349,6 @@ class App:
             if hasattr(self, 'audio_prebuffer_ready'):
                 self.audio_prebuffer_ready = False
             if hasattr(self, 'audio_underruns'):
-                print(f"Audio session stats - Underruns: {self.audio_underruns}, Overruns: {self.audio_overruns}")
                 self.audio_underruns = 0
                 self.audio_overruns = 0
         except Exception:
@@ -1391,8 +1359,8 @@ class App:
             if hasattr(self, 'audio_pyaudio') and self.audio_pyaudio:
                 self.audio_pyaudio.terminate()
                 self.audio_pyaudio = None
-        except Exception as e:
-            print(f"Error terminating PyAudio: {e}")
+        except Exception:
+            pass
 
         self.set_status("Audio stopped.")
 
