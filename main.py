@@ -1098,11 +1098,19 @@ class App:
             print(f"  Index: {output_idx}, Rate: {output_rate} Hz, Channels: {output_channels}")
 
             # Use larger buffer for WASAPI stability
-            chunk = 2048
+            input_chunk = 1024  # Smaller input chunks for lower latency
+            output_chunk = 2048  # Larger output chunks for stability
 
-            # Create a queue to pass audio data between input and output
+            # Create a larger queue with more buffering to prevent underruns
             import queue
-            self.audio_queue = queue.Queue(maxsize=10)
+            self.audio_queue = queue.Queue(maxsize=50)
+
+            # Resampling state for smoother conversion
+            self.audio_resample_buffer = np.array([], dtype=np.int16)
+            self.audio_resample_pos = 0.0
+            self.audio_prebuffer_ready = False
+            self.audio_underruns = 0
+            self.audio_overruns = 0
 
             # Input stream callback - captures audio and puts in queue
             def input_callback(in_data, frame_count, time_info, status):
@@ -1111,30 +1119,116 @@ class App:
                 try:
                     self.audio_queue.put_nowait(in_data)
                 except queue.Full:
-                    pass  # Drop frames if queue is full
+                    self.audio_overruns += 1
+                    if self.audio_overruns % 100 == 0:
+                        print(f"Audio overruns: {self.audio_overruns}")
                 return (None, pyaudio.paContinue)
 
             # Output stream callback - gets audio from queue and plays it
             def output_callback(in_data, frame_count, time_info, status):
                 if status:
                     print(f"Output status: {status}")
-                try:
-                    data = self.audio_queue.get_nowait()
 
-                    # Convert data to numpy array for processing
-                    audio_data = np.frombuffer(data, dtype=np.int16)
+                # Wait for queue to fill up a bit before starting (pre-buffering)
+                if not self.audio_prebuffer_ready:
+                    if self.audio_queue.qsize() >= 5:
+                        self.audio_prebuffer_ready = True
+                        print("Audio pre-buffering complete, starting playback...")
+                    else:
+                        # Still pre-buffering, output silence
+                        silence = np.zeros(frame_count * output_channels, dtype=np.int16)
+                        return (silence.tobytes(), pyaudio.paContinue)
+
+                try:
+                    # Accumulate enough input data for conversion
+                    accumulated_data = []
+
+                    # Try to get multiple chunks if available for smoother conversion
+                    chunks_to_get = max(1, min(3, self.audio_queue.qsize()))
+                    for _ in range(chunks_to_get):
+                        try:
+                            data = self.audio_queue.get_nowait()
+                            accumulated_data.append(np.frombuffer(data, dtype=np.int16))
+                        except queue.Empty:
+                            break
+
+                    if not accumulated_data:
+                        # No data available - underrun
+                        self.audio_underruns += 1
+                        if self.audio_underruns % 100 == 0:
+                            print(f"Audio underruns: {self.audio_underruns}")
+                        silence = np.zeros(frame_count * output_channels, dtype=np.int16)
+                        return (silence.tobytes(), pyaudio.paContinue)
+
+                    # Combine all accumulated data
+                    audio_data = np.concatenate(accumulated_data)
 
                     # Reshape based on input channels
                     if input_channels > 1:
                         audio_data = audio_data.reshape(-1, input_channels)
 
-                    # Handle sample rate conversion (simple nearest-neighbor resampling)
+                    # Add to resample buffer
+                    if len(self.audio_resample_buffer) > 0:
+                        if input_channels > 1:
+                            audio_data = np.vstack([self.audio_resample_buffer.reshape(-1, input_channels), audio_data])
+                        else:
+                            audio_data = np.concatenate([self.audio_resample_buffer, audio_data])
+
+                    # Handle sample rate conversion with linear interpolation
                     if input_rate != output_rate:
                         ratio = output_rate / input_rate
-                        new_length = int(len(audio_data) * ratio)
-                        indices = (np.arange(new_length) / ratio).astype(int)
-                        indices = np.clip(indices, 0, len(audio_data) - 1)
-                        audio_data = audio_data[indices]
+                        input_len = len(audio_data)
+                        output_len_needed = frame_count
+
+                        # Calculate how many input samples we need
+                        input_samples_needed = int(output_len_needed / ratio) + 2
+
+                        if input_len >= input_samples_needed:
+                            # We have enough data for conversion
+                            indices = np.arange(output_len_needed) / ratio
+
+                            if input_channels == 1:
+                                # Linear interpolation for mono
+                                int_indices = indices.astype(int)
+                                frac = indices - int_indices
+                                int_indices = np.clip(int_indices, 0, input_len - 2)
+
+                                audio_data_converted = (
+                                    audio_data[int_indices] * (1 - frac) +
+                                    audio_data[int_indices + 1] * frac
+                                ).astype(np.int16)
+                            else:
+                                # Linear interpolation for each channel
+                                int_indices = indices.astype(int)
+                                frac = indices - int_indices
+                                int_indices = np.clip(int_indices, 0, input_len - 2)
+
+                                audio_data_converted = np.zeros((output_len_needed, input_channels), dtype=np.int16)
+                                for ch in range(input_channels):
+                                    audio_data_converted[:, ch] = (
+                                        audio_data[int_indices, ch] * (1 - frac) +
+                                        audio_data[int_indices + 1, ch] * frac
+                                    ).astype(np.int16)
+
+                            # Store remaining samples for next callback
+                            samples_used = int(output_len_needed / ratio) + 1
+                            if samples_used < input_len:
+                                if input_channels > 1:
+                                    self.audio_resample_buffer = audio_data[samples_used:].flatten()
+                                else:
+                                    self.audio_resample_buffer = audio_data[samples_used:]
+                            else:
+                                self.audio_resample_buffer = np.array([], dtype=np.int16)
+
+                            audio_data = audio_data_converted
+                        else:
+                            # Not enough data, save for next time and output silence
+                            self.audio_resample_buffer = audio_data.flatten()
+                            silence = np.zeros(frame_count * output_channels, dtype=np.int16)
+                            return (silence.tobytes(), pyaudio.paContinue)
+                    else:
+                        # No rate conversion needed
+                        self.audio_resample_buffer = np.array([], dtype=np.int16)
 
                     # Handle channel conversion
                     if input_channels == 1 and output_channels == 2:
@@ -1149,8 +1243,9 @@ class App:
                     expected_samples = frame_count * output_channels
 
                     if len(audio_data) < expected_samples:
-                        # Pad with zeros
-                        padding = np.zeros(expected_samples - len(audio_data), dtype=np.int16)
+                        # Pad with last value to avoid clicks
+                        last_value = audio_data[-1] if len(audio_data) > 0 else 0
+                        padding = np.full(expected_samples - len(audio_data), last_value, dtype=np.int16)
                         audio_data = np.concatenate([audio_data, padding])
                     elif len(audio_data) > expected_samples:
                         # Trim excess
@@ -1158,37 +1253,35 @@ class App:
 
                     return (audio_data.tobytes(), pyaudio.paContinue)
 
-                except queue.Empty:
-                    # No data available, output silence
-                    silence = np.zeros(frame_count * output_channels, dtype=np.int16)
-                    return (silence.tobytes(), pyaudio.paContinue)
                 except Exception as e:
                     print(f"Output callback error: {e}")
+                    import traceback
+                    traceback.print_exc()
                     # Output silence on error
                     silence = np.zeros(frame_count * output_channels, dtype=np.int16)
                     return (silence.tobytes(), pyaudio.paContinue)
 
             # Open input stream
-            print(f"Opening input stream: {input_rate} Hz, {input_channels} ch...")
+            print(f"Opening input stream: {input_rate} Hz, {input_channels} ch, {input_chunk} buffer...")
             self.audio_input_stream = self.audio_pyaudio.open(
                 format=pyaudio.paInt16,
                 channels=input_channels,
                 rate=input_rate,
                 input=True,
                 input_device_index=input_idx,
-                frames_per_buffer=chunk,
+                frames_per_buffer=input_chunk,
                 stream_callback=input_callback
             )
 
             # Open output stream
-            print(f"Opening output stream: {output_rate} Hz, {output_channels} ch...")
+            print(f"Opening output stream: {output_rate} Hz, {output_channels} ch, {output_chunk} buffer...")
             self.audio_output_stream = self.audio_pyaudio.open(
                 format=pyaudio.paInt16,
                 channels=output_channels,
                 rate=output_rate,
                 output=True,
                 output_device_index=output_idx,
-                frames_per_buffer=chunk,
+                frames_per_buffer=output_chunk,
                 stream_callback=output_callback
             )
 
@@ -1255,6 +1348,19 @@ class App:
                     except:
                         break
                 self.audio_queue = None
+        except Exception:
+            pass
+
+        # Clear resampling state
+        try:
+            if hasattr(self, 'audio_resample_buffer'):
+                self.audio_resample_buffer = None
+            if hasattr(self, 'audio_prebuffer_ready'):
+                self.audio_prebuffer_ready = False
+            if hasattr(self, 'audio_underruns'):
+                print(f"Audio session stats - Underruns: {self.audio_underruns}, Overruns: {self.audio_overruns}")
+                self.audio_underruns = 0
+                self.audio_overruns = 0
         except Exception:
             pass
 
