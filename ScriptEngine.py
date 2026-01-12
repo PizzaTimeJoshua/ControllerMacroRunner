@@ -887,6 +887,18 @@ class ScriptEngine:
             out = c.get("out", "random_value")
             return f"Random choice from {choices!r} -> ${out}"
 
+        def fmt_random_range(c):
+            min_val = c.get("min", 0)
+            max_val = c.get("max", 100)
+            integer = c.get("integer", False)
+            out = c.get("out", "random_value")
+            type_str = "int" if integer else "float"
+            return f"Random {type_str} from {min_val} to {max_val} -> ${out}"
+
+        def fmt_random_value(c):
+            out = c.get("out", "random_value")
+            return f"Random float [0.0, 1.0) -> ${out}"
+
         # ---- execution fns
         def cmd_wait(ctx, c):
             ms_raw = c.get("ms", 0)
@@ -1182,6 +1194,43 @@ class ScriptEngine:
             selected = random.choice(choices)
             ctx["vars"][out] = selected
 
+        def cmd_random_range(ctx, c):
+            """
+            Generate a random number between min and max (inclusive).
+            If integer is True, returns an integer; otherwise returns a float.
+            """
+            min_raw = c.get("min", 0)
+            max_raw = c.get("max", 100)
+            integer = bool(resolve_value(ctx, c.get("integer", False)))
+            out = c.get("out", "random_value")
+
+            # Resolve min and max values (support variables and expressions)
+            min_val = resolve_number(ctx, min_raw)
+            max_val = resolve_number(ctx, max_raw)
+
+            # Validate range
+            if min_val > max_val:
+                messagebox.showerror(f"random_range: min ({min_val}) cannot be greater than max ({max_val})")
+                return
+
+            # Generate random value
+            if integer:
+                # For integers, use randint (inclusive on both ends)
+                selected = random.randint(int(min_val), int(max_val))
+            else:
+                # For floats, use uniform
+                selected = random.uniform(min_val, max_val)
+
+            ctx["vars"][out] = selected
+
+        def cmd_random_value(ctx, c):
+            """
+            Generate a random float between 0.0 and 1.0 (exclusive of 1.0).
+            """
+            out = c.get("out", "random_value")
+            selected = random.random()
+            ctx["vars"][out] = selected
+
         def cmd_type_name(ctx, c):
             """
             Types a name on Pokemon FRLG/RSE naming screens.
@@ -1443,6 +1492,31 @@ class ScriptEngine:
                 format_fn=fmt_random,
                 group="Variables",
                 order=40,
+                exportable=True
+            ),
+            CommandSpec(
+                "random_range", ["min", "max", "out"], cmd_random_range,
+                doc="Generate a random number between min and max (inclusive). Use integer=true for whole numbers.",
+                arg_schema=[
+                    {"key": "min", "type": "json", "default": 0, "help": "Minimum value (inclusive, supports $var and =expr)"},
+                    {"key": "max", "type": "json", "default": 100, "help": "Maximum value (inclusive, supports $var and =expr)"},
+                    {"key": "integer", "type": "bool", "default": False, "help": "If true, returns integer; if false, returns float"},
+                    {"key": "out", "type": "str", "default": "random_value", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_random_range,
+                group="Variables",
+                order=41,
+                exportable=True
+            ),
+            CommandSpec(
+                "random_value", ["out"], cmd_random_value,
+                doc="Generate a random float between 0.0 and 1.0 (exclusive of 1.0).",
+                arg_schema=[
+                    {"key": "out", "type": "str", "default": "random_value", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_random_value,
+                group="Variables",
+                order=42,
                 exportable=True
             ),
             CommandSpec(

@@ -110,6 +110,21 @@ def export_script_to_python(self):
             if outv:
                 used_vars.add(outv)
 
+        if cmd == "random_range":
+            # Check for variables in min and max
+            for key in ("min", "max"):
+                v = c.get(key)
+                if isinstance(v, str) and v.startswith("$"):
+                    used_vars.add(v[1:])
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
+        if cmd == "random_value":
+            outv = (c.get("out") or "").strip()
+            if outv:
+                used_vars.add(outv)
+
         if cmd == "run_python":
             args = c.get("args", [])
             if isinstance(args, list):
@@ -247,6 +262,22 @@ def export_script_to_python(self):
             pyv = var_map.get(outv, _py_ident(outv))
             emit(f"{pyv} = random.choice({choices})")
 
+        elif cmd == "random_range":
+            min_val = op_to_py(c.get("min"))
+            max_val = op_to_py(c.get("max"))
+            integer = c.get("integer", False)
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+            if integer:
+                emit(f"{pyv} = random.randint(int({min_val}), int({max_val}))")
+            else:
+                emit(f"{pyv} = random.uniform({min_val}, {max_val})")
+
+        elif cmd == "random_value":
+            outv = (c.get("out") or "random_value").strip()
+            pyv = var_map.get(outv, _py_ident(outv))
+            emit(f"{pyv} = random.random()")
+
         elif cmd == "if":
             left = op_to_py(c.get("left"))
             op = c.get("op")
@@ -283,7 +314,7 @@ def export_script_to_python(self):
         emit("")
 
     uses_run_python = any(c.get("cmd") == "run_python" for c in commands)
-    uses_random = any(c.get("cmd") == "random" for c in commands)
+    uses_random = any(c.get("cmd") in ("random", "random_range", "random_value") for c in commands)
 
     # -------------------------
     # 5) Exported file header
