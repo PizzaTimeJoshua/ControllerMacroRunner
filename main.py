@@ -9,6 +9,7 @@ FFmpeg:
     ffmpeg -version
 """
 import os
+import sys
 import json
 import re
 import threading
@@ -44,6 +45,9 @@ from audio import (
     list_audio_devices,
 )
 from dialogs import CommandEditorDialog
+
+# Windows-specific flag to hide console window for subprocesses
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 # ----------------------------
@@ -909,7 +913,13 @@ class App:
             "-"
         ]
         try:
-            self.cam_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
+            self.cam_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=10**7,
+                creationflags=_SUBPROCESS_FLAGS
+            )
         except FileNotFoundError:
             messagebox.showerror("ffmpeg not found", "ffmpeg was not found on PATH.")
             return

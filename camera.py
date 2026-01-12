@@ -3,6 +3,7 @@ Camera module for Controller Macro Runner.
 Handles camera device enumeration, video capture, and display.
 """
 import subprocess
+import sys
 import tkinter as tk
 from tkinter import ttk
 import json
@@ -11,13 +12,17 @@ from PIL import Image, ImageTk
 
 from utils import ffmpeg_path
 
+# Windows-specific flag to hide console window
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 
 def list_dshow_video_devices():
     """List DirectShow video devices using ffmpeg."""
     try:
         p = subprocess.run(
             [ffmpeg_path(), "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-            capture_output=True
+            capture_output=True,
+            creationflags=_SUBPROCESS_FLAGS
         )
 
     except FileNotFoundError:
