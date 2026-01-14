@@ -7,7 +7,245 @@ from tkinter import ttk, messagebox
 import json
 
 import SerialController
-from utils import list_python_files
+from utils import list_python_files, get_default_keybindings
+
+
+class SettingsDialog(tk.Toplevel):
+    """Dialog for editing application settings including keybinds and 3DS IP."""
+
+    def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
+                 on_save_callback=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.result = None
+        self.on_save_callback = on_save_callback
+
+        # Store initial values
+        self.keybindings = keybindings.copy()
+        self.threeds_ip = threeds_ip
+        self.threeds_port = threeds_port
+        self._rebinding_target = None
+
+        self.title("Settings")
+        self.transient(parent)
+        self.grab_set()
+
+        # Main container
+        main = ttk.Frame(self, padding=10)
+        main.grid(row=0, column=0, sticky="nsew")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Notebook for tabs
+        self.notebook = ttk.Notebook(main)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
+        main.columnconfigure(0, weight=1)
+        main.rowconfigure(0, weight=1)
+
+        # Create tabs
+        self._create_keybinds_tab()
+        self._create_threeds_tab()
+
+        # Bottom buttons
+        btn_frame = ttk.Frame(main)
+        btn_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        ttk.Button(btn_frame, text="Cancel", command=self._cancel).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text="Save", command=self._save).pack(side="right")
+
+        # Position dialog
+        self.update_idletasks()
+        x = parent.winfo_rootx() + 100
+        y = parent.winfo_rooty() + 50
+        self.geometry(f"+{x}+{y}")
+        self.minsize(450, 400)
+
+    def _create_keybinds_tab(self):
+        """Create the keybindings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Keybinds")
+
+        # Info label
+        info = ttk.Label(tab, text="Keyboard control is active when connected to a backend.\n"
+                                   "Click Rebind, then press a key. Press Esc to cancel.")
+        info.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        # Treeview for keybindings
+        tree_frame = ttk.Frame(tab)
+        tree_frame.grid(row=1, column=0, columnspan=4, sticky="nsew")
+        tab.rowconfigure(1, weight=1)
+        tab.columnconfigure(0, weight=1)
+
+        self.keybinds_tree = ttk.Treeview(tree_frame, columns=("button", "key"),
+                                          show="headings", height=12)
+        self.keybinds_tree.heading("button", text="Controller Button")
+        self.keybinds_tree.heading("key", text="Key")
+        self.keybinds_tree.column("button", width=160, anchor="w")
+        self.keybinds_tree.column("key", width=160, anchor="w")
+        self.keybinds_tree.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
+                                  command=self.keybinds_tree.yview)
+        self.keybinds_tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+
+        # Status label
+        self.keybind_status_var = tk.StringVar(value="Select a button and click Rebind.")
+        ttk.Label(tab, textvariable=self.keybind_status_var, foreground="gray").grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(10, 0))
+
+        # Buttons
+        btn_row = ttk.Frame(tab)
+        btn_row.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        ttk.Button(btn_row, text="Rebind...", command=self._start_rebind).pack(side="left")
+        ttk.Button(btn_row, text="Clear", command=self._clear_binding).pack(side="left", padx=(6, 0))
+        ttk.Button(btn_row, text="Restore Defaults", command=self._restore_default_keybinds).pack(
+            side="left", padx=(6, 0))
+
+        # Populate tree
+        self._refresh_keybinds_tree()
+
+        # Bind key press for rebinding
+        self.bind("<KeyPress>", self._on_rebind_key)
+
+    def _create_threeds_tab(self):
+        """Create the 3DS settings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="3DS Input Redirection")
+
+        # Info label
+        info = ttk.Label(tab, text="Configure the 3DS IP address for Input Redirection.\n"
+                                   "The 3DS must be running InputRedirectionNTR or similar.")
+        info.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
+
+        # IP address
+        ttk.Label(tab, text="3DS IP Address:").grid(row=1, column=0, sticky="w", pady=5)
+        self.ip_var = tk.StringVar(value=self.threeds_ip)
+        ip_entry = ttk.Entry(tab, textvariable=self.ip_var, width=20)
+        ip_entry.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=5)
+
+        # Port
+        ttk.Label(tab, text="Port:").grid(row=2, column=0, sticky="w", pady=5)
+        self.port_var = tk.StringVar(value=str(self.threeds_port))
+        port_entry = ttk.Entry(tab, textvariable=self.port_var, width=10)
+        port_entry.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=5)
+
+        # Default port hint
+        ttk.Label(tab, text="Default port is 4950", foreground="gray").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+    def _refresh_keybinds_tree(self):
+        """Refresh the keybindings treeview."""
+        self.keybinds_tree.delete(*self.keybinds_tree.get_children())
+
+        # Build inverse mapping: button -> list of keys
+        inv = {b: [] for b in SerialController.ALL_BUTTONS}
+        for key, btn in self.keybindings.items():
+            if btn in inv:
+                inv[btn].append(key)
+
+        # Insert rows
+        for btn in SerialController.ALL_BUTTONS:
+            keys = ", ".join(sorted(inv[btn])) if inv[btn] else ""
+            self.keybinds_tree.insert("", "end", values=(btn, keys))
+
+    def _get_selected_button(self):
+        """Get the currently selected controller button."""
+        sel = self.keybinds_tree.selection()
+        if not sel:
+            return None
+        vals = self.keybinds_tree.item(sel[0], "values")
+        return vals[0] if vals else None
+
+    def _start_rebind(self):
+        """Start rebinding a key."""
+        btn = self._get_selected_button()
+        if not btn:
+            messagebox.showinfo("Rebind", "Select a controller button first.", parent=self)
+            return
+        self._rebinding_target = btn
+        self.keybind_status_var.set(f"Press a key to bind to {btn} (Esc cancels)...")
+
+    def _on_rebind_key(self, event):
+        """Handle key press during rebinding."""
+        if self._rebinding_target is None:
+            return
+
+        ks = (event.keysym or "").lower()
+        if not ks:
+            return
+
+        if ks == "escape":
+            self._rebinding_target = None
+            self.keybind_status_var.set("Rebind cancelled.")
+            return
+
+        if ks == "return":
+            ks = "enter"
+
+        # Assign the key to the button
+        self.keybindings[ks] = self._rebinding_target
+        self.keybind_status_var.set(f"Bound '{ks}' to {self._rebinding_target}")
+        self._rebinding_target = None
+        self._refresh_keybinds_tree()
+
+    def _clear_binding(self):
+        """Clear all keybindings for the selected button."""
+        btn = self._get_selected_button()
+        if not btn:
+            return
+
+        # Remove all keys that map to this button
+        keys_to_remove = [k for k, b in self.keybindings.items() if b == btn]
+        for k in keys_to_remove:
+            del self.keybindings[k]
+
+        self._refresh_keybinds_tree()
+        self.keybind_status_var.set(f"Cleared bindings for {btn}")
+
+    def _restore_default_keybinds(self):
+        """Restore default keybindings."""
+        self.keybindings = get_default_keybindings()
+        self._refresh_keybinds_tree()
+        self.keybind_status_var.set("Restored default keybindings")
+
+    def _save(self):
+        """Save settings and close dialog."""
+        # Validate 3DS settings
+        ip = self.ip_var.get().strip()
+        if not ip:
+            messagebox.showerror("Invalid IP", "Please enter a valid IP address.", parent=self)
+            self.notebook.select(1)  # Switch to 3DS tab
+            return
+
+        try:
+            port = int(self.port_var.get().strip())
+            if port < 1 or port > 65535:
+                raise ValueError("Port out of range")
+        except ValueError:
+            messagebox.showerror("Invalid Port", "Port must be a number between 1 and 65535.",
+                                 parent=self)
+            self.notebook.select(1)  # Switch to 3DS tab
+            return
+
+        # Build result
+        self.result = {
+            "keybindings": self.keybindings.copy(),
+            "threeds": {
+                "ip": ip,
+                "port": port,
+            }
+        }
+
+        # Call save callback if provided
+        if self.on_save_callback:
+            self.on_save_callback(self.result)
+
+        self.destroy()
+
+    def _cancel(self):
+        """Cancel and close dialog."""
+        self.result = None
+        self.destroy()
 
 
 class CommandEditorDialog(tk.Toplevel):

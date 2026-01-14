@@ -31,6 +31,9 @@ from utils import (
     safe_script_filename,
     list_script_files,
     list_com_ports,
+    load_settings,
+    save_settings,
+    get_default_keybindings,
 )
 from camera import (
     list_dshow_video_devices,
@@ -44,7 +47,7 @@ from audio import (
     pyaudio,
     list_audio_devices,
 )
-from dialogs import CommandEditorDialog
+from dialogs import CommandEditorDialog, SettingsDialog
 
 # Windows-specific flag to hide console window for subprocesses
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -65,26 +68,15 @@ class App:
         self.root.rowconfigure(0, weight=1)
         self.root.geometry("1200x700")
 
+        # --- Load settings from file
+        self._settings = load_settings()
+
         # --- keyboard controller mode (manual control)
         self.kb_enabled = tk.BooleanVar(value=False)
         self.kb_camera_focused = False  # True when a camera frame widget has focus for keyboard control
-        self.kb_bindings = {  # key -> controller button name (must match ALL_BUTTONS entries)
-            "w": "Up",
-            "a": "Left",
-            "s": "Down",
-            "d": "Right",
-            "j": "A",
-            "k": "B",
-            "u": "X",
-            "i": "Y",
-            "enter": "Start",
-            "space": "Select",
-            "q": "L",
-            "e": "R",
-        }
+        self.kb_bindings = self._settings.get("keybindings", get_default_keybindings())
         self.kb_down = set()         # set of pressed Tk keysyms (normalized)
         self.kb_buttons_held = set() # controller buttons currently held due to keyboard
-        self._rebinding_target = None  # button being rebound in UI, or None
 
         # Global key events (manual controller)
         self.root.bind_all("<KeyPress>", self._on_key_press)
@@ -159,8 +151,9 @@ class App:
 
         # Output backend selection
         self.backend_var = tk.StringVar(value="USB Serial")  # "USB Serial" or "3DS Input Redirection"
-        self.threeds_ip_var = tk.StringVar(value="192.168.1.1")
-        self.threeds_port_var = tk.StringVar(value="4950")
+        threeds_settings = self._settings.get("threeds", {})
+        self.threeds_ip_var = tk.StringVar(value=threeds_settings.get("ip", "192.168.1.1"))
+        self.threeds_port_var = tk.StringVar(value=str(threeds_settings.get("port", 4950)))
         self.threeds_backend: Optional[ThreeDSClasses.ThreeDSBackend] = None
 
         # Active backend points to either self.serial or self.threeds_backend
@@ -218,7 +211,7 @@ class App:
 
         ttk.Checkbutton(top, text="Camera-less \nKeyboard Control", variable=self.kb_enabled,
                         command=self._on_keyboard_toggle).grid(row=1, column=4, columnspan=2, padx=(10, 6), sticky="w")
-        ttk.Button(top, text="Keybinds…", command=self.open_keybinds_window).grid(row=1, column=6, padx=(0, 6))
+        ttk.Button(top, text="Settings...", command=self.open_settings_dialog).grid(row=1, column=6, padx=(0, 6))
 
         # Camera controls
         ttk.Label(top, text="Camera:").grid(row=0, column=0, sticky="w")
@@ -279,25 +272,13 @@ class App:
         self.backend_combo.grid(row=2, column=1, sticky="ew", padx=(6, 6),pady=(4,0))
         self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
 
-        # 3DS config (shown/hidden)
-        self.threeds_ip_label = ttk.Label(top, text="3DS IP:")
-        self.threeds_ip_entry = ttk.Entry(top, textvariable=self.threeds_ip_var, width=12)
-
-        self.threeds_port_label = ttk.Label(top, text="Port:")
-        self.threeds_port_entry = ttk.Entry(top, textvariable=self.threeds_port_var, width=6)
-
+        # 3DS config buttons (IP/Port now configured in Settings dialog)
         self.threeds_enable_btn = ttk.Button(top, text="Enable 3DS", command=self.enable_threeds_backend)
         self.threeds_disable_btn = ttk.Button(top, text="Disable 3DS", command=self.disable_threeds_backend)
 
         # place them (we'll hide/show in on_backend_changed)
-        self.threeds_ip_label.grid(row=2, column=2, sticky="w")
-        self.threeds_ip_entry.grid(row=2, column=3, sticky="w", padx=(4, 8))
-
-        self.threeds_port_label.grid(row=2, column=4, sticky="w")
-        self.threeds_port_entry.grid(row=2, column=5, sticky="w", padx=(4, 8))
-
-        self.threeds_enable_btn.grid(row=2, column=6, sticky="w", padx=(0, 6))
-        self.threeds_disable_btn.grid(row=2, column=7, sticky="w")
+        self.threeds_enable_btn.grid(row=2, column=2, sticky="w", padx=(0, 6))
+        self.threeds_disable_btn.grid(row=2, column=3, sticky="w")
 
         # initialize visibility
         self.on_backend_changed()
@@ -1565,124 +1546,50 @@ class App:
         except Exception as e:
             messagebox.showerror("Channel error", str(e))
 
-    def open_keybinds_window(self):
-        win = tk.Toplevel(self.root)
-        win.title("Keybinds")
-        win.transient(self.root)
-        win.grab_set()
+    def open_settings_dialog(self):
+        """Open the settings dialog for keybinds and 3DS configuration."""
+        try:
+            port = int(self.threeds_port_var.get())
+        except ValueError:
+            port = 4950
 
-        # info
-        info = ttk.Label(win, text="Keyboard Control is active only when no script is running.\n"
-                                "Click Rebind, then press a key. Keys are shown as Tk keysyms.")
-        info.grid(row=0, column=0, columnspan=4, sticky="w", padx=10, pady=(10, 6))
+        def on_save(settings):
+            # Update keybindings
+            self.kb_bindings = settings["keybindings"]
 
-        # tree
-        tree = ttk.Treeview(win, columns=("button", "key"), show="headings", height=12)
-        tree.heading("button", text="Controller Button")
-        tree.heading("key", text="Key")
-        tree.column("button", width=160, anchor="w")
-        tree.column("key", width=120, anchor="w")
-        tree.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=10)
+            # Update 3DS settings
+            threeds = settings["threeds"]
+            self.threeds_ip_var.set(threeds["ip"])
+            self.threeds_port_var.set(str(threeds["port"]))
 
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(1, weight=1)
+            # Save to file
+            self._settings = settings
+            if save_settings(settings):
+                self.set_status("Settings saved.")
+            else:
+                self.set_status("Settings updated (could not save to file).")
 
-        def refresh():
-            tree.delete(*tree.get_children())
-            # invert mapping: button -> keys (allow multiple keys if desired)
-            inv = {b: [] for b in SerialController.ALL_BUTTONS}
-            for k, b in self.kb_bindings.items():
-                if b in inv:
-                    inv[b].append(k)
-            for b in SerialController.ALL_BUTTONS:
-                keys = ", ".join(sorted(inv[b])) if inv[b] else ""
-                tree.insert("", "end", values=(b, keys))
-
-        refresh()
-
-        def get_selected_button():
-            sel = tree.selection()
-            if not sel:
-                return None
-            vals = tree.item(sel[0], "values")
-            return vals[0] if vals else None
-
-        def rebind():
-            b = get_selected_button()
-            if not b:
-                messagebox.showinfo("Rebind", "Select a controller button first.", parent=win)
-                return
-            self._rebinding_target = b
-            status_var.set(f"Press a key to bind to {b} (Esc cancels)…")
-
-        def clear_binding():
-            b = get_selected_button()
-            if not b:
-                return
-            # remove all keys mapping to this button
-            to_del = [k for k, btn in self.kb_bindings.items() if btn == b]
-            for k in to_del:
-                del self.kb_bindings[k]
-            refresh()
-
-        def restore_defaults():
-            self.kb_bindings = {
-                "w": "Up", "a": "Left", "s": "Down", "d": "Right",
-                "j": "A", "k": "B", "u": "X", "i": "Y",
-                "enter": "Start", "space": "Select",
-                "q": "L", "e": "R",
-            }
-            refresh()
-
-        status_var = tk.StringVar(value="Select a button and click Rebind.")
-        ttk.Label(win, textvariable=status_var, foreground="gray").grid(row=2, column=0, columnspan=4, sticky="w", padx=10, pady=(6, 0))
-
-        btnrow = ttk.Frame(win)
-        btnrow.grid(row=3, column=0, columnspan=4, sticky="ew", padx=10, pady=10)
-
-        ttk.Button(btnrow, text="Rebind…", command=rebind).pack(side="left")
-        ttk.Button(btnrow, text="Clear", command=clear_binding).pack(side="left", padx=(6, 0))
-        ttk.Button(btnrow, text="Restore defaults", command=restore_defaults).pack(side="left", padx=(6, 0))
-        ttk.Button(btnrow, text="Close", command=win.destroy).pack(side="right")
-
-        # Capture key presses while rebinding
-        def on_key(event):
-            if self._rebinding_target is None:
-                return
-            ks = (event.keysym or "").lower()
-            if ks == "escape":
-                self._rebinding_target = None
-                status_var.set("Rebind cancelled.")
-                return
-
-            if ks == "return":
-                ks = "enter"
-
-            # Ensure uniqueness: remove this key if already bound
-            self.kb_bindings[ks] = self._rebinding_target
-            status_var.set(f"Bound {ks} -> {self._rebinding_target}")
-            self._rebinding_target = None
-            refresh()
-
-        win.bind("<KeyPress>", on_key)
+        dialog = SettingsDialog(
+            self.root,
+            keybindings=self.kb_bindings,
+            threeds_ip=self.threeds_ip_var.get(),
+            threeds_port=port,
+            on_save_callback=on_save
+        )
+        self.root.wait_window(dialog)
 
     def on_backend_changed(self):
         is_3ds = (self.backend_var.get() == "3DS Input Redirection")
 
-        # Show/hide 3DS widgets
-        widgets = [
-            self.threeds_ip_label, self.threeds_ip_entry,
-            self.threeds_port_label, self.threeds_port_entry,
-            self.threeds_enable_btn, self.threeds_disable_btn
-        ]
+        # Show/hide 3DS buttons
+        widgets = [self.threeds_enable_btn, self.threeds_disable_btn]
         for w in widgets:
             if is_3ds:
                 w.grid()  # show
             else:
                 w.grid_remove()  # hide
 
-        # Optional: disable serial-specific UI when using 3DS
-        # If you have serial COM widgets like self.com_combo, self.connect_btn, disable them:
+        # Disable serial-specific UI when using 3DS
         if hasattr(self, "com_combo"):
             try:
                 state = "disabled" if is_3ds else "readonly"
@@ -1707,12 +1614,12 @@ class App:
 
         ip = (self.threeds_ip_var.get() or "").strip()
         if not ip:
-            messagebox.showerror("3DS", "Please enter a 3DS IP address.")
+            messagebox.showerror("3DS", "Please configure the 3DS IP address in Settings first.")
             return
         try:
             port = int((self.threeds_port_var.get() or "4950").strip())
         except ValueError:
-            messagebox.showerror("3DS", "Port must be a number.")
+            messagebox.showerror("3DS", "Invalid port. Please configure in Settings.")
             return
 
         try:
