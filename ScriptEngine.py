@@ -777,8 +777,9 @@ class ScriptEngine:
         self.ip = 0
 
     def run(self):
-        if not self.serial.connected:
-            raise RuntimeError("Serial not connected.")
+        backend = self.get_backend() or self.serial
+        if backend is None or not getattr(backend, "connected", False):
+            raise RuntimeError("No output backend connected.")
         if not self.commands:
             raise RuntimeError("No script loaded.")
         if self.running:
