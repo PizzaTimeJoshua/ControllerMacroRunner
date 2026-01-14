@@ -515,6 +515,82 @@ Tap the 3DS touchscreen (3DS backend only).
 | down_time | float | 0.1 | Seconds to hold touch |
 | settle | float | 0.1 | Seconds to wait after release |
 
+#### set_circle_pad
+Set the Circle Pad (left stick) position.
+Position stays active until another stick command or reset.
+
+```json
+{"cmd": "set_circle_pad", "x": 1.0, "y": 0.0}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x | number | 0.0 | X axis (-1.0..1.0) |
+| y | number | 0.0 | Y axis (-1.0..1.0) |
+
+#### reset_circle_pad
+Reset Circle Pad to center.
+
+```json
+{"cmd": "reset_circle_pad"}
+```
+
+#### set_c_stick
+Set the C-Stick (right stick) position.
+Position stays active until another stick command or reset.
+
+```json
+{"cmd": "set_c_stick", "x": 0.0, "y": -1.0}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x | number | 0.0 | X axis (-1.0..1.0) |
+| y | number | 0.0 | Y axis (-1.0..1.0) |
+
+#### reset_c_stick
+Reset C-Stick to center.
+
+```json
+{"cmd": "reset_c_stick"}
+```
+
+#### press_ir
+Press ZL/ZR for a duration.
+
+```json
+{"cmd": "press_ir", "buttons": ["ZL"], "ms": 80}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| buttons | list | required | IR buttons: ZL, ZR |
+| ms | number | required | Hold duration in milliseconds |
+
+#### hold_ir
+Hold ZL/ZR until changed by another command.
+
+```json
+{"cmd": "hold_ir", "buttons": ["ZL", "ZR"]}
+```
+
+#### press_interface
+Press Home/Power buttons.
+
+```json
+{"cmd": "press_interface", "buttons": ["Home"], "ms": 80}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| buttons | list | required | Interface buttons: Home, Power, PowerLong |
+| ms | number | required | Hold duration in milliseconds |
+
+Note: PowerLong triggers the power-off dialog. Use with care.
+
+#### hold_interface
+Hold Home/Power buttons until changed.
+
+```json
+{"cmd": "hold_interface", "buttons": ["Home"]}
+```
+
 ### Pokemon Commands
 
 #### type_name
@@ -622,6 +698,14 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | read_text | No | Requires camera + pytesseract |
 | label/goto | No | Not compatible with structured code |
 | tap_touch | No | 3DS-specific |
+| set_circle_pad | No | 3DS-specific |
+| reset_circle_pad | No | 3DS-specific |
+| set_c_stick | No | 3DS-specific |
+| reset_c_stick | No | 3DS-specific |
+| press_ir | No | 3DS-specific |
+| hold_ir | No | 3DS-specific |
+| press_interface | No | 3DS-specific |
+| hold_interface | No | 3DS-specific |
 | type_name | No | Complex navigation |
 
 ### How to Export

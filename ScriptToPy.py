@@ -43,7 +43,11 @@ def export_script_to_python(self):
 
     # Structured export cannot represent goto/label nicely.
     # Vision/camera commands are not included in export runtime.
-    disallow_cmds = {"find_color", "read_text", "tap_touch", "type_name", "label", "goto"}
+    disallow_cmds = {
+        "find_color", "read_text", "tap_touch", "type_name", "label", "goto",
+        "set_circle_pad", "reset_circle_pad", "set_c_stick", "reset_c_stick",
+        "press_ir", "hold_ir", "press_interface", "hold_interface",
+    }
 
     for i, c in enumerate(commands):
         cmd = c.get("cmd")

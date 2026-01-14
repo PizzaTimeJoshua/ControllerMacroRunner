@@ -866,6 +866,26 @@ class ScriptEngine:
             return f"RunPython {c.get('file')}{a}{o}"
         def fmt_tap_touch(c):
             return f"TapTouch x={c.get('x')} y={c.get('y')} down={c.get('down_time', 0.1)} settle={c.get('settle', 0.1)}"
+        def fmt_set_circle_pad(c):
+            return f"CirclePad x={c.get('x')} y={c.get('y')}"
+        def fmt_reset_circle_pad(c):
+            return "CirclePad Reset"
+        def fmt_set_c_stick(c):
+            return f"CStick x={c.get('x')} y={c.get('y')}"
+        def fmt_reset_c_stick(c):
+            return "CStick Reset"
+        def fmt_press_ir(c):
+            btns = c.get("buttons", [])
+            return f"Press IR {', '.join(btns) if btns else '(none)'} for {c.get('ms')} ms"
+        def fmt_hold_ir(c):
+            btns = c.get("buttons", [])
+            return f"Hold IR {', '.join(btns) if btns else '(none)'}"
+        def fmt_press_interface(c):
+            btns = c.get("buttons", [])
+            return f"Press Interface {', '.join(btns) if btns else '(none)'} for {c.get('ms')} ms"
+        def fmt_hold_interface(c):
+            btns = c.get("buttons", [])
+            return f"Hold Interface {', '.join(btns) if btns else '(none)'}"
         def fmt_mash(c):
             btns = c.get("buttons", [])
             duration = c.get("duration_ms", 1000)
@@ -1149,6 +1169,116 @@ class ScriptEngine:
             settle = float(resolve_value(ctx, c.get("settle", 0.1)))
 
             backend.tap_touch(x, y, down_time=down_time, settle=settle)
+
+        def cmd_set_circle_pad(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_circle_pad"):
+                raise RuntimeError("set_circle_pad is only supported by the 3DS backend.")
+
+            x = float(resolve_number(ctx, c.get("x", 0.0)))
+            y = float(resolve_number(ctx, c.get("y", 0.0)))
+            backend.set_circle_pad(x, y)
+
+        def cmd_reset_circle_pad(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "reset_circle_pad"):
+                raise RuntimeError("reset_circle_pad is only supported by the 3DS backend.")
+
+            backend.reset_circle_pad()
+
+        def cmd_set_c_stick(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_c_stick"):
+                raise RuntimeError("set_c_stick is only supported by the 3DS backend.")
+
+            x = float(resolve_number(ctx, c.get("x", 0.0)))
+            y = float(resolve_number(ctx, c.get("y", 0.0)))
+            backend.set_c_stick(x, y)
+
+        def cmd_reset_c_stick(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "reset_c_stick"):
+                raise RuntimeError("reset_c_stick is only supported by the 3DS backend.")
+
+            backend.reset_c_stick()
+
+        def cmd_press_ir(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_ir_buttons"):
+                raise RuntimeError("press_ir is only supported by the 3DS backend.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                messagebox.showerror("press_ir: buttons must be a list")
+                return
+
+            backend.set_ir_buttons(buttons)
+
+            ms_raw = c.get("ms", 50)
+            ms = float(resolve_number(ctx, ms_raw))
+            if ms > 0:
+                precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
+
+            backend.set_ir_buttons([])
+
+        def cmd_hold_ir(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_ir_buttons"):
+                raise RuntimeError("hold_ir is only supported by the 3DS backend.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                messagebox.showerror("hold_ir: buttons must be a list")
+                return
+
+            backend.set_ir_buttons(buttons)
+
+        def cmd_press_interface(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_interface_buttons"):
+                raise RuntimeError("press_interface is only supported by the 3DS backend.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                messagebox.showerror("press_interface: buttons must be a list")
+                return
+
+            backend.set_interface_buttons(buttons)
+
+            ms_raw = c.get("ms", 50)
+            ms = float(resolve_number(ctx, ms_raw))
+            if ms > 0:
+                precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
+
+            backend.set_interface_buttons([])
+
+        def cmd_hold_interface(ctx, c):
+            backend = ctx["get_backend"]()
+            if backend is None or not getattr(backend, "connected", False):
+                raise RuntimeError("No output backend connected.")
+            if not hasattr(backend, "set_interface_buttons"):
+                raise RuntimeError("hold_interface is only supported by the 3DS backend.")
+
+            buttons = c.get("buttons", [])
+            if not isinstance(buttons, list):
+                messagebox.showerror("hold_interface: buttons must be a list")
+                return
+
+            backend.set_interface_buttons(buttons)
 
         def cmd_mash(ctx, c):
             backend = ctx["get_backend"]()
@@ -1694,6 +1824,118 @@ class ScriptEngine:
                 format_fn=fmt_tap_touch,
                 group="3DS",
                 order=10,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "set_circle_pad",
+                ["x", "y"],
+                cmd_set_circle_pad,
+                doc="3DS only: set Circle Pad (left stick) position until changed or reset.",
+                arg_schema=[
+                    {"key":"x","type":"json","default":0.0, "help":"X axis (-1.0..1.0)"},
+                    {"key":"y","type":"json","default":0.0, "help":"Y axis (-1.0..1.0)"},
+                ],
+                format_fn=fmt_set_circle_pad,
+                group="3DS",
+                order=20,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "reset_circle_pad",
+                [],
+                cmd_reset_circle_pad,
+                doc="3DS only: reset Circle Pad to center.",
+                arg_schema=[],
+                format_fn=fmt_reset_circle_pad,
+                group="3DS",
+                order=21,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "set_c_stick",
+                ["x", "y"],
+                cmd_set_c_stick,
+                doc="3DS only: set C-Stick (right stick) position until changed or reset.",
+                arg_schema=[
+                    {"key":"x","type":"json","default":0.0, "help":"X axis (-1.0..1.0)"},
+                    {"key":"y","type":"json","default":0.0, "help":"Y axis (-1.0..1.0)"},
+                ],
+                format_fn=fmt_set_c_stick,
+                group="3DS",
+                order=22,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "reset_c_stick",
+                [],
+                cmd_reset_c_stick,
+                doc="3DS only: reset C-Stick to center.",
+                arg_schema=[],
+                format_fn=fmt_reset_c_stick,
+                group="3DS",
+                order=23,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "press_ir",
+                ["buttons", "ms"],
+                cmd_press_ir,
+                doc="3DS only: press ZL/ZR for ms, then release.",
+                arg_schema=[
+                    {"key":"buttons","type":"buttons","choices":["ZL", "ZR"], "default":["ZL"], "help":"IR buttons to press"},
+                    {"key":"ms","type":"json","default":80, "help":"Hold duration in milliseconds"},
+                ],
+                format_fn=fmt_press_ir,
+                group="3DS",
+                order=30,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "hold_ir",
+                ["buttons"],
+                cmd_hold_ir,
+                doc="3DS only: hold ZL/ZR until changed by another command.",
+                arg_schema=[
+                    {"key":"buttons","type":"buttons","choices":["ZL", "ZR"], "default":[], "help":"IR buttons to hold"},
+                ],
+                format_fn=fmt_hold_ir,
+                group="3DS",
+                order=31,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "press_interface",
+                ["buttons", "ms"],
+                cmd_press_interface,
+                doc="3DS only: press interface buttons (Home/Power). PowerLong triggers power dialog.",
+                arg_schema=[
+                    {"key":"buttons","type":"buttons","choices":["Home", "Power", "PowerLong"], "default":["Home"], "help":"Interface buttons to press"},
+                    {"key":"ms","type":"json","default":80, "help":"Hold duration in milliseconds"},
+                ],
+                format_fn=fmt_press_interface,
+                group="3DS",
+                order=40,
+                exportable=False,
+                export_note="3DS-specific command not supported in standalone export."
+            ),
+            CommandSpec(
+                "hold_interface",
+                ["buttons"],
+                cmd_hold_interface,
+                doc="3DS only: hold interface buttons (Home/Power) until changed. PowerLong triggers power dialog.",
+                arg_schema=[
+                    {"key":"buttons","type":"buttons","choices":["Home", "Power", "PowerLong"], "default":[], "help":"Interface buttons to hold"},
+                ],
+                format_fn=fmt_hold_interface,
+                group="3DS",
+                order=41,
                 exportable=False,
                 export_note="3DS-specific command not supported in standalone export."
             ),
