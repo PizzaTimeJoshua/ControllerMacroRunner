@@ -90,3 +90,74 @@ def list_com_ports():
     """List available COM ports."""
     from serial.tools import list_ports
     return [p.device for p in list_ports.comports()]
+
+
+# ----------------------------
+# Settings Management
+# ----------------------------
+
+SETTINGS_FILE = "settings.json"
+
+DEFAULT_SETTINGS = {
+    "keybindings": {
+        "w": "Up",
+        "a": "Left",
+        "s": "Down",
+        "d": "Right",
+        "j": "A",
+        "k": "B",
+        "u": "X",
+        "i": "Y",
+        "enter": "Start",
+        "space": "Select",
+        "q": "L",
+        "e": "R",
+    },
+    "threeds": {
+        "ip": "192.168.1.1",
+        "port": 4950,
+    },
+}
+
+
+def load_settings() -> dict:
+    """Load settings from settings.json, returning defaults if file doesn't exist."""
+    import json
+    import copy
+    settings_path = exe_dir_path(SETTINGS_FILE)
+
+    if not os.path.exists(settings_path):
+        return copy.deepcopy(DEFAULT_SETTINGS)
+
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+
+        # Merge with defaults to ensure all keys exist
+        result = copy.deepcopy(DEFAULT_SETTINGS)
+        if "keybindings" in loaded:
+            result["keybindings"] = loaded["keybindings"]
+        if "threeds" in loaded:
+            result["threeds"] = {**DEFAULT_SETTINGS["threeds"], **loaded["threeds"]}
+
+        return result
+    except Exception:
+        return copy.deepcopy(DEFAULT_SETTINGS)
+
+
+def save_settings(settings: dict) -> bool:
+    """Save settings to settings.json. Returns True on success."""
+    import json
+    settings_path = exe_dir_path(SETTINGS_FILE)
+
+    try:
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
+def get_default_keybindings() -> dict:
+    """Return a copy of the default keybindings."""
+    return DEFAULT_SETTINGS["keybindings"].copy()
