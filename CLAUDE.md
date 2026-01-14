@@ -26,7 +26,7 @@ ControllerMacroRunner/
 ├── main.py                 # Primary Tkinter GUI application (2,039 lines)
 ├── ScriptEngine.py         # Script execution engine with command registry (821 lines)
 ├── SerialController.py     # USB serial communication (119 lines)
-├── ThreeDSClasses.py       # 3DS Input Redirection backend (180 lines)
+├── InputRedirection.py       # 3DS Input Redirection backend (180 lines)
 ├── ScriptToPy.py           # Script-to-Python exporter (392 lines)
 ├── bin/                    # FFmpeg binaries (bundled)
 │   ├── ffmpeg.exe
@@ -47,7 +47,7 @@ ControllerMacroRunner/
 - **main.py**: Tkinter GUI with camera management, backend control, script editor UI, and event handling
 - **ScriptEngine.py**: Core execution engine with command registry, variable resolution, control flow, and extensible command system
 - **SerialController.py**: USB serial backend for wireless controller transmitter (1,000,000 baud)
-- **ThreeDSClasses.py**: Alternative backend for 3DS Input Redirection via UDP
+- **InputRedirection.py**: Alternative backend for 3DS Input Redirection via UDP
 - **ScriptToPy.py**: Exports compatible scripts to standalone Python files
 
 ---
@@ -89,7 +89,7 @@ py -m pip install numpy pillow pyserial
          └────────────────────────────────┘
                       ▼           ▼
     ┌─────────────────────┐   ┌──────────────────┐
-    │ SerialController    │   │ ThreeDSBackend   │
+    │ SerialController    │   │ InputRedirectionBackend   │
     │ (USB Wireless TX)   │   │ (3DS UDP)        │
     └─────────────────────┘   └──────────────────┘
 ```
@@ -201,7 +201,7 @@ The engine uses a hybrid timing approach for sub-millisecond precision:
 - `wait`: Uses `precise_sleep_interruptible()`
 - `press`: Uses `precise_sleep_interruptible()` for hold duration
 - `mash`: Uses `precise_sleep_interruptible()` for hold and wait phases
-- `tap_touch` (3DS): Uses `precise_sleep()` in ThreeDSClasses
+- `tap_touch` (3DS): Uses `precise_sleep()` in InputRedirection
 
 **Performance Characteristics:**
 - Minimal CPU overhead for waits > 5ms

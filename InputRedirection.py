@@ -41,7 +41,7 @@ def px_to_hid(x_px: int, y_px: int) -> Tuple[int, int]:
     y = y_px * 17
     return clamp(x, 0, HID_AXIS_MAX), clamp(y, 0, HID_AXIS_MAX)
 
-class ThreeDSButton(IntEnum):
+class InputRedirectionButton(IntEnum):
     A = 0
     B = 1
     SELECT = 2
@@ -57,12 +57,12 @@ class ThreeDSButton(IntEnum):
     ZL = 14
     ZR = 15
 
-class ThreeDSInterfaceButton(IntEnum):
+class InputRedirectionInterfaceButton(IntEnum):
     HOME = 0
     POWER = 1
 
 @dataclass
-class ThreeDSClient:
+class InputRedirectionClient:
     ip: str
     port: int = 4950
 
@@ -106,8 +106,8 @@ class ThreeDSClient:
     # Held buttons API (clean for our app)
     def set_buttons_held(
         self,
-        pressed: set[ThreeDSButton],
-        pressed_iface: set[ThreeDSInterfaceButton] = set()
+        pressed: set[InputRedirectionButton],
+        pressed_iface: set[InputRedirectionInterfaceButton] = set()
     ) -> None:
         # Reset to default idle then toggle bits for pressed
         self.hid_pad[:] = bytearray.fromhex("ff 0f 00 00")
@@ -127,18 +127,18 @@ class ThreeDSClient:
         self.interface_buttons[:] = bytearray.fromhex("00 00 00 00")
 
 
-class ThreeDSBackend:
+class InputRedirectionBackend:
     """
     Backend used by the app when Output Backend = 3DS Input Redirection.
     """
     def __init__(self, ip: str, port: int = 4950):
         self.ip = ip
         self.port = port
-        self.client = ThreeDSClient(ip=ip, port=port)
+        self.client = InputRedirectionClient(ip=ip, port=port)
         self._connected = True  # UDP is stateless; treat as enabled
 
-        self._pressed: set[ThreeDSButton] = set()
-        self._pressed_iface: set[ThreeDSInterfaceButton] = set()
+        self._pressed: set[InputRedirectionButton] = set()
+        self._pressed_iface: set[InputRedirectionInterfaceButton] = set()
 
     @property
     def connected(self) -> bool:
@@ -167,11 +167,11 @@ class ThreeDSBackend:
         buttons are app-level names, e.g. ["A","Up","L"] etc.
         """
         mapping = {
-            "A": ThreeDSButton.A, "B": ThreeDSButton.B, "X": ThreeDSButton.X, "Y": ThreeDSButton.Y,
-            "Up": ThreeDSButton.UP, "Down": ThreeDSButton.DOWN, "Left": ThreeDSButton.LEFT, "Right": ThreeDSButton.RIGHT,
-            "L": ThreeDSButton.L, "R": ThreeDSButton.R,
-            "Start": ThreeDSButton.START, "Select": ThreeDSButton.SELECT,
-            "ZL": ThreeDSButton.ZL, "ZR": ThreeDSButton.ZR,
+            "A": InputRedirectionButton.A, "B": InputRedirectionButton.B, "X": InputRedirectionButton.X, "Y": InputRedirectionButton.Y,
+            "Up": InputRedirectionButton.UP, "Down": InputRedirectionButton.DOWN, "Left": InputRedirectionButton.LEFT, "Right": InputRedirectionButton.RIGHT,
+            "L": InputRedirectionButton.L, "R": InputRedirectionButton.R,
+            "Start": InputRedirectionButton.START, "Select": InputRedirectionButton.SELECT,
+            "ZL": InputRedirectionButton.ZL, "ZR": InputRedirectionButton.ZR,
         }
         pressed = set()
         for b in buttons:

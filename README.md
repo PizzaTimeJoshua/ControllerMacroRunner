@@ -154,7 +154,7 @@ ControllerMacroRunner/
   main.py                 # Main application
   ScriptEngine.py         # Script execution engine
   SerialController.py     # USB serial communication
-  ThreeDSClasses.py       # 3DS Input Redirection backend
+  InputRedirection.py       # 3DS Input Redirection backend
   ScriptToPy.py           # Script to Python exporter
   scripts/                # Macro scripts (JSON) - auto-created
   py_scripts/             # Custom Python helpers - auto-created

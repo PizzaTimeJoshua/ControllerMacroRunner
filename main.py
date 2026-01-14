@@ -22,7 +22,7 @@ from PIL import Image, ImageTk
 from typing import Optional
 
 # Import from local modules
-import ThreeDSClasses
+import InputRedirection
 import SerialController
 import ScriptEngine
 import ScriptToPy
@@ -154,9 +154,9 @@ class App:
         threeds_settings = self._settings.get("threeds", {})
         self.threeds_ip_var = tk.StringVar(value=threeds_settings.get("ip", "192.168.1.1"))
         self.threeds_port_var = tk.StringVar(value=str(threeds_settings.get("port", 4950)))
-        self.threeds_backend: Optional[ThreeDSClasses.ThreeDSBackend] = None
+        self.input_redirection_backend: Optional[InputRedirection.InputRedirectionBackend] = None
 
-        # Active backend points to either self.serial or self.threeds_backend
+        # Active backend points to either self.serial or self.input_redirection_backend
         self.active_backend = self.serial
 
         self.engine.set_backend_getter(lambda: self.active_backend)
@@ -273,12 +273,20 @@ class App:
         self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
 
         # 3DS config buttons (IP/Port now configured in Settings dialog)
-        self.threeds_enable_btn = ttk.Button(top, text="Enable 3DS", command=self.enable_threeds_backend)
-        self.threeds_disable_btn = ttk.Button(top, text="Disable 3DS", command=self.disable_threeds_backend)
+        self.input_redirection_enable_btn = ttk.Button(
+            top,
+            text="Enable 3DS",
+            command=self.enable_input_redirection_backend
+        )
+        self.input_redirection_disable_btn = ttk.Button(
+            top,
+            text="Disable 3DS",
+            command=self.disable_input_redirection_backend
+        )
 
         # place them (we'll hide/show in on_backend_changed)
-        self.threeds_enable_btn.grid(row=2, column=2, sticky="w", padx=(0, 6))
-        self.threeds_disable_btn.grid(row=2, column=3, sticky="w")
+        self.input_redirection_enable_btn.grid(row=2, column=2, sticky="w", padx=(0, 6))
+        self.input_redirection_disable_btn.grid(row=2, column=3, sticky="w")
 
         # initialize visibility
         self.on_backend_changed()
@@ -726,11 +734,11 @@ class App:
 
     def _select_active_backend(self):
         if self.backend_var.get() == "3DS Input Redirection":
-            if self.threeds_backend and self.threeds_backend.connected:
-                self.active_backend = self.threeds_backend
+            if self.input_redirection_backend and self.input_redirection_backend.connected:
+                self.active_backend = self.input_redirection_backend
             else:
                 # Not enabled yet; still point to a disconnected backend if it exists
-                self.active_backend = self.threeds_backend or self.serial
+                self.active_backend = self.input_redirection_backend or self.serial
         else:
             self.active_backend = self.serial
 
@@ -1582,7 +1590,7 @@ class App:
         is_3ds = (self.backend_var.get() == "3DS Input Redirection")
 
         # Show/hide 3DS buttons
-        widgets = [self.threeds_enable_btn, self.threeds_disable_btn]
+        widgets = [self.input_redirection_enable_btn, self.input_redirection_disable_btn]
         for w in widgets:
             if is_3ds:
                 w.grid()  # show
@@ -1607,7 +1615,7 @@ class App:
 
         self.set_status(f"Output backend set to: {self.backend_var.get()}")
 
-    def enable_threeds_backend(self):
+    def enable_input_redirection_backend(self):
         if self.engine.running:
             messagebox.showwarning("3DS", "Stop the script before enabling/changing 3DS backend.")
             return
@@ -1623,21 +1631,21 @@ class App:
             return
 
         try:
-            self.threeds_backend = ThreeDSClasses.ThreeDSBackend(ip=ip, port=port)
-            self.threeds_backend.connect()
+            self.input_redirection_backend = InputRedirection.InputRedirectionBackend(ip=ip, port=port)
+            self.input_redirection_backend.connect()
             self.backend_var.set("3DS Input Redirection")
             self._select_active_backend()
             self.set_status(f"3DS backend enabled: {ip}:{port}")
         except Exception as e:
             messagebox.showerror("3DS", str(e))
 
-    def disable_threeds_backend(self):
+    def disable_input_redirection_backend(self):
         try:
-            if self.threeds_backend:
-                self.threeds_backend.disconnect()
+            if self.input_redirection_backend:
+                self.input_redirection_backend.disconnect()
         except Exception:
             pass
-        self.threeds_backend = None
+        self.input_redirection_backend = None
         self.backend_var.set("USB Serial")
         self._select_active_backend()
         self.set_status("3DS backend disabled.")
