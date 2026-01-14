@@ -907,7 +907,7 @@ Distribute the `dist/ControllerMacroRunner/` folder as a zip file. Include the `
 
 ## Contributing
 
-See [CLAUDE.md](CLAUDE.md) for developer documentation and contribution guidelines.
+See [AGENTS.md](AGENTS.md) for developer documentation and contribution guidelines.
 
 ---
 
