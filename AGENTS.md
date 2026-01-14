@@ -1,4 +1,4 @@
-# CLAUDE.md - AI Assistant Guide for Controller Macro Runner
+# AGENTS.md - AI Assistant Guide for Controller Macro Runner
 
 ## Project Overview
 
