@@ -496,11 +496,15 @@ class CommandEditorDialog(tk.Toplevel):
                     lb.pack(side="left", fill="both", expand=True)
                     sb.pack(side="left", fill="y")
 
-                    for b in SerialController.ALL_BUTTONS:
+                    choices = field.get("choices")
+                    if not isinstance(choices, list) or not choices:
+                        choices = SerialController.ALL_BUTTONS
+
+                    for b in choices:
                         lb.insert("end", b)
 
                     init_buttons = init_val if isinstance(init_val, list) else []
-                    for i, b in enumerate(SerialController.ALL_BUTTONS):
+                    for i, b in enumerate(choices):
                         if b in init_buttons:
                             lb.selection_set(i)
 

@@ -585,6 +585,8 @@ Use `ScriptToPy.py` to convert compatible scripts to standalone Python files:
 - ❌ `label`, `goto` - Not compatible with structured Python export
 - ❌ `$frame` references - Camera frame payload not supported
 - ❌ `tap_touch` - 3DS-specific command
+- ❌ `set_circle_pad`, `reset_circle_pad`, `set_c_stick`, `reset_c_stick` - 3DS-specific commands
+- ❌ `press_ir`, `hold_ir`, `press_interface`, `hold_interface` - 3DS-specific commands
 - ❌ `type_name` - Complex keyboard navigation not supported
 
 **Benefits:**
@@ -702,6 +704,14 @@ Edit file with guessed content
 | `read_text` | OCR text from camera | No | `x`, `y`, `width`, `height`, `out` |
 | `run_python` | Execute Python script | Yes | `file`, `args`, `out` |
 | `tap_touch` | 3DS touchscreen tap | No | `x`, `y`, `down_time`, `settle` |
+| `set_circle_pad` | 3DS circle pad set | No | `x`, `y` |
+| `reset_circle_pad` | 3DS circle pad reset | No | - |
+| `set_c_stick` | 3DS C-Stick set | No | `x`, `y` |
+| `reset_c_stick` | 3DS C-Stick reset | No | - |
+| `press_ir` | 3DS ZL/ZR press | No | `buttons`, `ms` |
+| `hold_ir` | 3DS ZL/ZR hold | No | `buttons` |
+| `press_interface` | 3DS Home/Power press | No | `buttons`, `ms` |
+| `hold_interface` | 3DS Home/Power hold | No | `buttons` |
 | `type_name` | Pokemon name entry | No | `name`, `confirm` |
 
 **Operators for if/while**: `==`, `!=`, `<`, `<=`, `>`, `>=`
