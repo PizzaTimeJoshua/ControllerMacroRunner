@@ -500,6 +500,46 @@ Documentation that does nothing at runtime.
 {"cmd": "comment", "text": "This is a comment"}
 ```
 
+### Stick Commands
+
+#### set_left_stick
+Set the left stick position (3DS or PABotBase).
+Position stays active until another stick command or reset.
+
+```json
+{"cmd": "set_left_stick", "x": 1.0, "y": 0.0}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x | number | 0.0 | X axis (-1.0..1.0) |
+| y | number | 0.0 | Y axis (-1.0..1.0) |
+
+#### reset_left_stick
+Reset left stick to center.
+
+```json
+{"cmd": "reset_left_stick"}
+```
+
+#### set_right_stick
+Set the right stick position (3DS or PABotBase).
+Position stays active until another stick command or reset.
+
+```json
+{"cmd": "set_right_stick", "x": 0.0, "y": -1.0}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x | number | 0.0 | X axis (-1.0..1.0) |
+| y | number | 0.0 | Y axis (-1.0..1.0) |
+
+#### reset_right_stick
+Reset right stick to center.
+
+```json
+{"cmd": "reset_right_stick"}
+```
+
 ### 3DS-Specific Commands
 
 #### tap_touch
@@ -514,44 +554,6 @@ Tap the 3DS touchscreen (3DS backend only).
 | y | int | required | Y pixel (0-239) |
 | down_time | float | 0.1 | Seconds to hold touch |
 | settle | float | 0.1 | Seconds to wait after release |
-
-#### set_circle_pad
-Set the Circle Pad (left stick) position.
-Position stays active until another stick command or reset.
-
-```json
-{"cmd": "set_circle_pad", "x": 1.0, "y": 0.0}
-```
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| x | number | 0.0 | X axis (-1.0..1.0) |
-| y | number | 0.0 | Y axis (-1.0..1.0) |
-
-#### reset_circle_pad
-Reset Circle Pad to center.
-
-```json
-{"cmd": "reset_circle_pad"}
-```
-
-#### set_c_stick
-Set the C-Stick (right stick) position.
-Position stays active until another stick command or reset.
-
-```json
-{"cmd": "set_c_stick", "x": 0.0, "y": -1.0}
-```
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| x | number | 0.0 | X axis (-1.0..1.0) |
-| y | number | 0.0 | Y axis (-1.0..1.0) |
-
-#### reset_c_stick
-Reset C-Stick to center.
-
-```json
-{"cmd": "reset_c_stick"}
-```
 
 #### press_ir
 Press ZL/ZR for a duration.
@@ -698,10 +700,10 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | read_text | No | Requires camera + pytesseract |
 | label/goto | No | Not compatible with structured code |
 | tap_touch | No | 3DS-specific |
-| set_circle_pad | No | 3DS-specific |
-| reset_circle_pad | No | 3DS-specific |
-| set_c_stick | No | 3DS-specific |
-| reset_c_stick | No | 3DS-specific |
+| set_left_stick | No | Requires stick backend |
+| reset_left_stick | No | Requires stick backend |
+| set_right_stick | No | Requires stick backend |
+| reset_right_stick | No | Requires stick backend |
 | press_ir | No | 3DS-specific |
 | hold_ir | No | 3DS-specific |
 | press_interface | No | 3DS-specific |
@@ -750,6 +752,10 @@ Control the game directly with your keyboard when no script is running.
 | Space | Select |
 | Q | L |
 | E | R |
+| Up Arrow | Left Stick Up |
+| Down Arrow | Left Stick Down |
+| Left Arrow | Left Stick Left |
+| Right Arrow | Left Stick Right |
 
 ### Customizing Bindings
 

@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import re
+import math
 import threading
 import subprocess
 import tkinter as tk
@@ -77,6 +78,8 @@ class App:
         self.kb_bindings = self._settings.get("keybindings", get_default_keybindings())
         self.kb_down = set()         # set of pressed Tk keysyms (normalized)
         self.kb_buttons_held = set() # controller buttons currently held due to keyboard
+        self.kb_left_stick_dirs = set()
+        self.kb_right_stick_dirs = set()
 
         # Global key events (manual controller)
         self.root.bind_all("<KeyPress>", self._on_key_press)
@@ -471,6 +474,39 @@ class App:
             ks = "enter"
         return ks
 
+    def _stick_dirs_to_xy(self, dirs, prefix):
+        x = 0.0
+        y = 0.0
+        if f"{prefix} Left" in dirs:
+            x -= 1.0
+        if f"{prefix} Right" in dirs:
+            x += 1.0
+        if f"{prefix} Up" in dirs:
+            y += 1.0
+        if f"{prefix} Down" in dirs:
+            y -= 1.0
+        if x and y:
+            scale = 1.0 / math.sqrt(2.0)
+            x *= scale
+            y *= scale
+        return x, y
+
+    def _update_keyboard_sticks(self):
+        self._select_active_backend()
+        if not self.active_backend or not getattr(self.active_backend, "connected", False):
+            return
+
+        backend = self.active_backend
+        inner_backend = backend.backend if isinstance(backend, SerialController.SerialController) else backend
+
+        if inner_backend and hasattr(inner_backend, "set_left_stick"):
+            x, y = self._stick_dirs_to_xy(self.kb_left_stick_dirs, "Left Stick")
+            backend.set_left_stick(x, y)
+
+        if inner_backend and hasattr(inner_backend, "set_right_stick"):
+            x, y = self._stick_dirs_to_xy(self.kb_right_stick_dirs, "Right Stick")
+            backend.set_right_stick(x, y)
+
     def _manual_control_allowed(self):
         """
         Check if manual keyboard control is allowed.
@@ -520,10 +556,13 @@ class App:
     def _release_all_keyboard_buttons(self):
         self.kb_down.clear()
         self.kb_buttons_held.clear()
+        self.kb_left_stick_dirs.clear()
+        self.kb_right_stick_dirs.clear()
         # go neutral only if script not running
         self._select_active_backend()
         if not self.engine.running and self.active_backend and getattr(self.active_backend, "connected", False):
             self.active_backend.set_buttons([])
+            self._update_keyboard_sticks()
 
     def _enable_camera_keyboard_focus(self, event=None):
         """Enable keyboard control focus when camera frame is clicked."""
@@ -596,19 +635,29 @@ class App:
         if not ks:
             return
 
-        # Check if this key is mapped to a controller button
-        btn = self.kb_bindings.get(ks)
+        # Check if this key is mapped to a controller control
+        target = self.kb_bindings.get(ks)
 
         # Prevent repeat spamming (Tk sends repeats while held)
         if ks in self.kb_down:
             # Return "break" to prevent key from triggering GUI buttons
-            return "break" if btn else None
+            return "break" if target else None
         self.kb_down.add(ks)
 
-        if not btn:
+        if not target:
             return
 
-        self.kb_buttons_held.add(btn)
+        if target in SerialController.LEFT_STICK_BINDINGS:
+            self.kb_left_stick_dirs.add(target)
+            self._update_keyboard_sticks()
+            return "break"
+
+        if target in SerialController.RIGHT_STICK_BINDINGS:
+            self.kb_right_stick_dirs.add(target)
+            self._update_keyboard_sticks()
+            return "break"
+
+        self.kb_buttons_held.add(target)
         self._select_active_backend()
         if self.active_backend and getattr(self.active_backend, "connected", False):
             self.active_backend.set_buttons(sorted(self.kb_buttons_held))
@@ -626,17 +675,29 @@ class App:
         if not ks:
             return
 
-        # Check if this key is mapped to a controller button
-        btn = self.kb_bindings.get(ks)
+        # Check if this key is mapped to a controller control
+        target = self.kb_bindings.get(ks)
 
         if ks in self.kb_down:
             self.kb_down.remove(ks)
 
-        if not btn:
+        if not target:
             return
 
-        if btn in self.kb_buttons_held:
-            self.kb_buttons_held.remove(btn)
+        if target in SerialController.LEFT_STICK_BINDINGS:
+            if target in self.kb_left_stick_dirs:
+                self.kb_left_stick_dirs.remove(target)
+                self._update_keyboard_sticks()
+            return "break"
+
+        if target in SerialController.RIGHT_STICK_BINDINGS:
+            if target in self.kb_right_stick_dirs:
+                self.kb_right_stick_dirs.remove(target)
+                self._update_keyboard_sticks()
+            return "break"
+
+        if target in self.kb_buttons_held:
+            self.kb_buttons_held.remove(target)
 
         self._select_active_backend()
         if self.active_backend and getattr(self.active_backend, "connected", False):

@@ -745,6 +745,18 @@ class ScriptEngine:
             messagebox.showerror("Script must be a list of command objects.")
             return
 
+        rename_map = {
+            "set_circle_pad": "set_left_stick",
+            "reset_circle_pad": "reset_left_stick",
+            "set_c_stick": "set_right_stick",
+            "reset_c_stick": "reset_right_stick",
+        }
+        for c in cmds:
+            if isinstance(c, dict):
+                name = c.get("cmd")
+                if name in rename_map:
+                    c["cmd"] = rename_map[name]
+
         for i, c in enumerate(cmds):
             if not isinstance(c, dict) or "cmd" not in c:
                 messagebox.showerror(f"Command at index {i} must be an object with 'cmd'.")
@@ -771,7 +783,7 @@ class ScriptEngine:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
         self.running = False
-        self.serial.set_state(0, 0)
+        self._reset_backend_neutral()
         self.status_cb("Script stopped.")
         self.on_ip_update(-1)
         self.ip = 0
@@ -785,10 +797,62 @@ class ScriptEngine:
         if self.running:
             return
 
+        unsupported = self._find_unsupported_commands(backend)
+        if unsupported:
+            backend_name = getattr(backend, "backend_name", None)
+            if backend_name is None:
+                inner = getattr(backend, "backend", None)
+                if inner is not None:
+                    backend_name = getattr(inner, "backend_name", inner.__class__.__name__)
+                else:
+                    backend_name = backend.__class__.__name__
+            msg_lines = [
+                f"The current backend ({backend_name}) does not support:",
+                "",
+            ]
+            for i, name in unsupported[:12]:
+                msg_lines.append(f"- Line {i + 1}: {name}")
+            if len(unsupported) > 12:
+                msg_lines.append(f"...and {len(unsupported) - 12} more.")
+            msg_lines.append("")
+            msg_lines.append("The script will not run until unsupported commands are removed.")
+            messagebox.showwarning("Unsupported commands", "\n".join(msg_lines))
+            return
+
         self.running = True
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+
+    def _find_unsupported_commands(self, backend):
+        if backend is None:
+            return []
+
+        requirements = {
+            "tap_touch": "tap_touch",
+            "set_left_stick": "set_left_stick",
+            "reset_left_stick": "reset_left_stick",
+            "set_right_stick": "set_right_stick",
+            "reset_right_stick": "reset_right_stick",
+            "press_ir": "set_ir_buttons",
+            "hold_ir": "set_ir_buttons",
+            "press_interface": "set_interface_buttons",
+            "hold_interface": "set_interface_buttons",
+        }
+
+        def supports(method_name):
+            if hasattr(backend, "backend"):
+                inner = getattr(backend, "backend", None)
+                return inner is not None and hasattr(inner, method_name)
+            return hasattr(backend, method_name)
+
+        unsupported = []
+        for i, c in enumerate(self.commands):
+            name = c.get("cmd")
+            required = requirements.get(name)
+            if required and not supports(required):
+                unsupported.append((i, name))
+        return unsupported
 
     def _loop(self):
         ctx = {
@@ -818,11 +882,11 @@ class ScriptEngine:
                 self.on_tick()
                 self.ip += 1
 
-            self.serial.set_state(0, 0)
+            self._reset_backend_neutral()
             if not self._stop.is_set():
                 self.status_cb("Script completed.")
         except Exception as e:
-            self.serial.set_state(0, 0)
+            self._reset_backend_neutral()
             self.status_cb(f"Script error: {e}")
             raise(e)
         finally:
@@ -830,6 +894,16 @@ class ScriptEngine:
             self.on_ip_update(-1)
             self.ip = 0
             self._stop.clear()
+
+    def _reset_backend_neutral(self):
+        backend = self.get_backend() or self.serial
+        if backend is None or not getattr(backend, "connected", False):
+            return
+        if hasattr(backend, "reset_neutral"):
+            backend.reset_neutral()
+            return
+        if hasattr(backend, "set_buttons"):
+            backend.set_buttons([])
 
     def _build_default_registry(self):
         reg = {}
@@ -867,14 +941,14 @@ class ScriptEngine:
             return f"RunPython {c.get('file')}{a}{o}"
         def fmt_tap_touch(c):
             return f"TapTouch x={c.get('x')} y={c.get('y')} down={c.get('down_time', 0.1)} settle={c.get('settle', 0.1)}"
-        def fmt_set_circle_pad(c):
-            return f"CirclePad x={c.get('x')} y={c.get('y')}"
-        def fmt_reset_circle_pad(c):
-            return "CirclePad Reset"
-        def fmt_set_c_stick(c):
-            return f"CStick x={c.get('x')} y={c.get('y')}"
-        def fmt_reset_c_stick(c):
-            return "CStick Reset"
+        def fmt_set_left_stick(c):
+            return f"Left Stick x={c.get('x')} y={c.get('y')}"
+        def fmt_reset_left_stick(c):
+            return "Left Stick Reset"
+        def fmt_set_right_stick(c):
+            return f"Right Stick x={c.get('x')} y={c.get('y')}"
+        def fmt_reset_right_stick(c):
+            return "Right Stick Reset"
         def fmt_press_ir(c):
             btns = c.get("buttons", [])
             return f"Press IR {', '.join(btns) if btns else '(none)'} for {c.get('ms')} ms"
@@ -950,11 +1024,20 @@ class ScriptEngine:
                 messagebox.showerror("press: buttons must be a list")
                 return
 
-            # Press buttons with precise timing
-            backend.set_buttons(buttons)
-
             ms_raw = c.get("ms", 50)
             ms = float(resolve_number(ctx, ms_raw))
+
+            use_timed_press = bool(getattr(backend, "supports_timed_press", False))
+            if use_timed_press:
+                backend.press_buttons(buttons, ms)
+                if ms > 0:
+                    interrupted = precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
+                    if interrupted:
+                        backend.set_buttons([])
+                return
+
+            # Press buttons with precise timing
+            backend.set_buttons(buttons)
             if ms > 0:
                 # Use high-precision interruptible sleep
                 precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
@@ -1171,45 +1254,51 @@ class ScriptEngine:
 
             backend.tap_touch(x, y, down_time=down_time, settle=settle)
 
-        def cmd_set_circle_pad(ctx, c):
+        def cmd_set_left_stick(ctx, c):
             backend = ctx["get_backend"]()
             if backend is None or not getattr(backend, "connected", False):
                 raise RuntimeError("No output backend connected.")
-            if not hasattr(backend, "set_circle_pad"):
-                raise RuntimeError("set_circle_pad is only supported by the 3DS backend.")
+            if not hasattr(backend, "set_left_stick"):
+                raise RuntimeError("set_left_stick is not supported by this backend.")
 
             x = float(resolve_number(ctx, c.get("x", 0.0)))
             y = float(resolve_number(ctx, c.get("y", 0.0)))
-            backend.set_circle_pad(x, y)
+            backend.set_left_stick(x, y)
 
-        def cmd_reset_circle_pad(ctx, c):
+        def cmd_reset_left_stick(ctx, c):
             backend = ctx["get_backend"]()
             if backend is None or not getattr(backend, "connected", False):
                 raise RuntimeError("No output backend connected.")
-            if not hasattr(backend, "reset_circle_pad"):
-                raise RuntimeError("reset_circle_pad is only supported by the 3DS backend.")
+            if hasattr(backend, "reset_left_stick"):
+                backend.reset_left_stick()
+                return
+            if hasattr(backend, "set_left_stick"):
+                backend.set_left_stick(0.0, 0.0)
+                return
+            raise RuntimeError("reset_left_stick is not supported by this backend.")
 
-            backend.reset_circle_pad()
-
-        def cmd_set_c_stick(ctx, c):
+        def cmd_set_right_stick(ctx, c):
             backend = ctx["get_backend"]()
             if backend is None or not getattr(backend, "connected", False):
                 raise RuntimeError("No output backend connected.")
-            if not hasattr(backend, "set_c_stick"):
-                raise RuntimeError("set_c_stick is only supported by the 3DS backend.")
+            if not hasattr(backend, "set_right_stick"):
+                raise RuntimeError("set_right_stick is not supported by this backend.")
 
             x = float(resolve_number(ctx, c.get("x", 0.0)))
             y = float(resolve_number(ctx, c.get("y", 0.0)))
-            backend.set_c_stick(x, y)
+            backend.set_right_stick(x, y)
 
-        def cmd_reset_c_stick(ctx, c):
+        def cmd_reset_right_stick(ctx, c):
             backend = ctx["get_backend"]()
             if backend is None or not getattr(backend, "connected", False):
                 raise RuntimeError("No output backend connected.")
-            if not hasattr(backend, "reset_c_stick"):
-                raise RuntimeError("reset_c_stick is only supported by the 3DS backend.")
-
-            backend.reset_c_stick()
+            if hasattr(backend, "reset_right_stick"):
+                backend.reset_right_stick()
+                return
+            if hasattr(backend, "set_right_stick"):
+                backend.set_right_stick(0.0, 0.0)
+                return
+            raise RuntimeError("reset_right_stick is not supported by this backend.")
 
         def cmd_press_ir(ctx, c):
             backend = ctx["get_backend"]()
@@ -1294,6 +1383,7 @@ class ScriptEngine:
             duration_ms = float(resolve_number(ctx, c.get("duration_ms", 1000)))
             hold_ms = float(resolve_number(ctx, c.get("hold_ms", 25)))
             wait_ms = float(resolve_number(ctx, c.get("wait_ms", 25)))
+            use_timed_press = bool(getattr(backend, "supports_timed_press", False))
 
             # Convert to seconds for precise timing
             hold_sec = hold_ms / 1000.0
@@ -1309,14 +1399,18 @@ class ScriptEngine:
                     break
 
                 # Press buttons
-                backend.set_buttons(buttons)
+                if use_timed_press:
+                    backend.press_buttons(buttons, hold_ms)
+                else:
+                    backend.set_buttons(buttons)
 
                 # Hold for precise duration
                 if precise_sleep_interruptible(hold_sec, ctx["stop"]):
                     break  # Interrupted
 
-                # Release buttons
-                backend.set_buttons([])
+                if not use_timed_press:
+                    # Release buttons
+                    backend.set_buttons([])
 
                 # Check if we have time for a full wait cycle
                 time_remaining = end_time - time.perf_counter()
@@ -1829,58 +1923,58 @@ class ScriptEngine:
                 export_note="3DS-specific command not supported in standalone export."
             ),
             CommandSpec(
-                "set_circle_pad",
+                "set_left_stick",
                 ["x", "y"],
-                cmd_set_circle_pad,
-                doc="3DS only: set Circle Pad (left stick) position until changed or reset.",
+                cmd_set_left_stick,
+                doc="Set left stick position until changed or reset (3DS/PABotBase only).",
                 arg_schema=[
                     {"key":"x","type":"json","default":0.0, "help":"X axis (-1.0..1.0)"},
                     {"key":"y","type":"json","default":0.0, "help":"Y axis (-1.0..1.0)"},
                 ],
-                format_fn=fmt_set_circle_pad,
-                group="3DS",
+                format_fn=fmt_set_left_stick,
+                group="Controller",
                 order=20,
                 exportable=False,
-                export_note="3DS-specific command not supported in standalone export."
+                export_note="Not supported in standalone export."
             ),
             CommandSpec(
-                "reset_circle_pad",
+                "reset_left_stick",
                 [],
-                cmd_reset_circle_pad,
-                doc="3DS only: reset Circle Pad to center.",
+                cmd_reset_left_stick,
+                doc="Reset left stick to center (3DS/PABotBase only).",
                 arg_schema=[],
-                format_fn=fmt_reset_circle_pad,
-                group="3DS",
+                format_fn=fmt_reset_left_stick,
+                group="Controller",
                 order=21,
                 exportable=False,
-                export_note="3DS-specific command not supported in standalone export."
+                export_note="Not supported in standalone export."
             ),
             CommandSpec(
-                "set_c_stick",
+                "set_right_stick",
                 ["x", "y"],
-                cmd_set_c_stick,
-                doc="3DS only: set C-Stick (right stick) position until changed or reset.",
+                cmd_set_right_stick,
+                doc="Set right stick position until changed or reset (3DS/PABotBase only).",
                 arg_schema=[
                     {"key":"x","type":"json","default":0.0, "help":"X axis (-1.0..1.0)"},
                     {"key":"y","type":"json","default":0.0, "help":"Y axis (-1.0..1.0)"},
                 ],
-                format_fn=fmt_set_c_stick,
-                group="3DS",
+                format_fn=fmt_set_right_stick,
+                group="Controller",
                 order=22,
                 exportable=False,
-                export_note="3DS-specific command not supported in standalone export."
+                export_note="Not supported in standalone export."
             ),
             CommandSpec(
-                "reset_c_stick",
+                "reset_right_stick",
                 [],
-                cmd_reset_c_stick,
-                doc="3DS only: reset C-Stick to center.",
+                cmd_reset_right_stick,
+                doc="Reset right stick to center (3DS/PABotBase only).",
                 arg_schema=[],
-                format_fn=fmt_reset_c_stick,
-                group="3DS",
+                format_fn=fmt_reset_right_stick,
+                group="Controller",
                 order=23,
                 exportable=False,
-                export_note="3DS-specific command not supported in standalone export."
+                export_note="Not supported in standalone export."
             ),
             CommandSpec(
                 "press_ir",
@@ -1965,4 +2059,3 @@ class ScriptEngine:
         for s in specs:
             reg[s.name] = s
         return reg
-
