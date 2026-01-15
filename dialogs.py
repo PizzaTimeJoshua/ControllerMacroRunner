@@ -1,6 +1,8 @@
 """
 Dialog classes for Controller Macro Runner.
-Contains the CommandEditorDialog for editing script commands.
+
+SettingsDialog: Keybindings and 3DS Input Redirection configuration.
+CommandEditorDialog: Schema-driven editor for script commands.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox

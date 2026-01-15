@@ -1,3 +1,14 @@
+"""
+Serial controller backends for USB-connected controllers.
+
+Supports two protocols:
+- USB TX: Simple 3-byte packets (header + button bytes). Used by basic Arduino
+  controllers that relay button state over RF to the console.
+- PABotBase: Bidirectional protocol with acknowledgments, used by Pokémon
+  automation hardware (Teensy-based). Supports timed button presses natively.
+
+The SerialController wrapper auto-detects which protocol a device speaks.
+"""
 import os
 import serial
 import time
@@ -6,10 +17,6 @@ import struct
 
 import pabotbase_controller as pabotbase
 from serial.tools import list_ports
-
-# ----------------------------
-# Serial controller backends
-# ----------------------------
 
 BUTTON_MAP = {
     "L": ("high", 0x01),

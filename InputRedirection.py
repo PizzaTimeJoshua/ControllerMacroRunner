@@ -1,3 +1,9 @@
+"""
+3DS Input Redirection backend.
+
+Sends controller state over UDP to a 3DS running InputRedirection homebrew.
+The protocol uses packed binary structs for button/stick/touch state.
+"""
 from typing import Optional
 from dataclasses import dataclass, field
 import socket
@@ -5,9 +11,6 @@ import struct
 from enum import IntEnum
 import time
 import math
-# -----------------------------
-# 3DS Input Redirection backend
-# -----------------------------
 
 TOUCH_SCREEN_WIDTH = 320
 TOUCH_SCREEN_HEIGHT = 240
@@ -17,7 +20,13 @@ CPP_BOUND = 0x7F
 SQRT_1_2 = math.sqrt(0.5)
 
 def precise_sleep(duration_sec):
-    """High-precision sleep for 3DS timing"""
+    """
+    High-precision sleep using busy-wait for sub-2ms durations.
+
+    time.sleep() has ~15ms granularity on Windows, which is too coarse
+    for frame-accurate input timing. This hybrid approach uses sleep()
+    for longer waits (to save CPU) and busy-waits the final ~2ms.
+    """
     if duration_sec <= 0:
         return
     if duration_sec < 0.002:

@@ -1,3 +1,12 @@
+"""
+Script-to-Python exporter.
+
+Converts JSON macro scripts into standalone Python files that can run
+without the GUI application. This allows users to share or schedule
+macros as self-contained scripts with no external dependencies beyond
+pyserial. Camera/vision commands are excluded since the exported runtime
+doesn't include FFmpeg integration.
+"""
 import re
 from tkinter import filedialog, messagebox
 import os

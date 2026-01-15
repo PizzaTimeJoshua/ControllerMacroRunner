@@ -1,3 +1,10 @@
+"""
+Script engine for macro execution.
+
+Parses JSON script files containing commands (button presses, waits,
+conditionals, loops) and executes them against a connected controller backend.
+Also provides image analysis commands (color matching, OCR) using the camera feed.
+"""
 import time
 import base64
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
