@@ -112,6 +112,10 @@ DEFAULT_SETTINGS = {
         "space": "Select",
         "q": "L",
         "e": "R",
+        "up": "Left Stick Up",
+        "down": "Left Stick Down",
+        "left": "Left Stick Left",
+        "right": "Left Stick Right",
     },
     "threeds": {
         "ip": "192.168.1.1",

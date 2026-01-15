@@ -311,6 +311,12 @@ class InputRedirectionBackend:
         self.client.reset_circle_pad()
         self.client.send_update()
 
+    def set_left_stick(self, x: float, y: float):
+        self.set_circle_pad(x, y)
+
+    def reset_left_stick(self):
+        self.reset_circle_pad()
+
     def set_c_stick(self, x: float, y: float):
         self.client.set_c_stick(x, y)
         self.client.send_update()
@@ -318,6 +324,12 @@ class InputRedirectionBackend:
     def reset_c_stick(self):
         self.client.reset_c_stick()
         self.client.send_update()
+
+    def set_right_stick(self, x: float, y: float):
+        self.set_c_stick(x, y)
+
+    def reset_right_stick(self):
+        self.reset_c_stick()
 
     def tap_touch(self, x_px: int, y_px: int, down_time: float = 0.1, settle: float = 0.1):
         # Down

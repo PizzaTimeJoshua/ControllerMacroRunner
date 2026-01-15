@@ -77,7 +77,7 @@ class SettingsDialog(tk.Toplevel):
 
         self.keybinds_tree = ttk.Treeview(tree_frame, columns=("button", "key"),
                                           show="headings", height=12)
-        self.keybinds_tree.heading("button", text="Controller Button")
+        self.keybinds_tree.heading("button", text="Controller Input")
         self.keybinds_tree.heading("key", text="Key")
         self.keybinds_tree.column("button", width=160, anchor="w")
         self.keybinds_tree.column("key", width=160, anchor="w")
@@ -89,7 +89,7 @@ class SettingsDialog(tk.Toplevel):
         scrollbar.pack(side="right", fill="y")
 
         # Status label
-        self.keybind_status_var = tk.StringVar(value="Select a button and click Rebind.")
+        self.keybind_status_var = tk.StringVar(value="Select an input and click Rebind.")
         ttk.Label(tab, textvariable=self.keybind_status_var, foreground="gray").grid(
             row=2, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
@@ -138,13 +138,13 @@ class SettingsDialog(tk.Toplevel):
         self.keybinds_tree.delete(*self.keybinds_tree.get_children())
 
         # Build inverse mapping: button -> list of keys
-        inv = {b: [] for b in SerialController.ALL_BUTTONS}
+        inv = {b: [] for b in SerialController.KEYBIND_TARGETS}
         for key, btn in self.keybindings.items():
             if btn in inv:
                 inv[btn].append(key)
 
         # Insert rows
-        for btn in SerialController.ALL_BUTTONS:
+        for btn in SerialController.KEYBIND_TARGETS:
             keys = ", ".join(sorted(inv[btn])) if inv[btn] else ""
             self.keybinds_tree.insert("", "end", values=(btn, keys))
 
@@ -160,7 +160,7 @@ class SettingsDialog(tk.Toplevel):
         """Start rebinding a key."""
         btn = self._get_selected_button()
         if not btn:
-            messagebox.showinfo("Rebind", "Select a controller button first.", parent=self)
+            messagebox.showinfo("Rebind", "Select a controller input first.", parent=self)
             return
         self._rebinding_target = btn
         self.keybind_status_var.set(f"Press a key to bind to {btn} (Esc cancels)...")
