@@ -36,6 +36,8 @@ from utils import (
     load_settings,
     save_settings,
     get_default_keybindings,
+    normalize_theme_setting,
+    resolve_theme_mode,
 )
 from camera import (
     list_dshow_video_devices,
@@ -54,6 +56,59 @@ from dialogs import CommandEditorDialog, SettingsDialog
 # Windows-specific flag to hide console window for subprocesses
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+THEME_COLORS = {
+    "light": {
+        "bg": "#f4f5f7",
+        "panel": "#ffffff",
+        "text": "#1f2328",
+        "muted": "#5f6368",
+        "border": "#c9cdd4",
+        "accent": "#1f6feb",
+        "entry_bg": "#ffffff",
+        "button_bg": "#f6f7f9",
+        "button_fg": "#1f2328",
+        "select_bg": "#dbeafe",
+        "select_fg": "#111827",
+        "tree_bg": "#ffffff",
+        "tree_fg": "#1f2328",
+        "text_bg": "#fbfbfc",
+        "text_fg": "#1f2328",
+        "text_sel_bg": "#dbeafe",
+        "text_sel_fg": "#111827",
+        "pane_bg": "#e9eaee",
+        "ip_bg": "#dbeafe",
+        "comment_fg": "#228B22",
+        "variable_fg": "#0066CC",
+        "math_fg": "#b58900",
+        "selected_bg": "#e0e0e0",
+    },
+    "dark": {
+        "bg": "#1e1f22",
+        "panel": "#25272b",
+        "text": "#e6e6e6",
+        "muted": "#a0a5ad",
+        "border": "#3a3f44",
+        "accent": "#4f8cff",
+        "entry_bg": "#2a2d33",
+        "button_bg": "#2f3338",
+        "button_fg": "#e6e6e6",
+        "select_bg": "#2e3f59",
+        "select_fg": "#ffffff",
+        "tree_bg": "#1f2227",
+        "tree_fg": "#e6e6e6",
+        "text_bg": "#1c1f24",
+        "text_fg": "#e6e6e6",
+        "text_sel_bg": "#2e3f59",
+        "text_sel_fg": "#ffffff",
+        "pane_bg": "#1b1d21",
+        "ip_bg": "#2f3b52",
+        "comment_fg": "#7ee787",
+        "variable_fg": "#7ab7ff",
+        "math_fg": "#f2c94c",
+        "selected_bg": "#2c313a",
+    },
+}
+
 
 # ----------------------------
 # Tkinter App
@@ -68,10 +123,15 @@ class App:
         self.root.title("Controller Macro Runner")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        self.root.geometry("1200x700")
+        self.root.geometry("1280x700")
 
         # --- Load settings from file
         self._settings = load_settings()
+        self._theme_setting = normalize_theme_setting(self._settings.get("theme", "auto"))
+        self._resolved_theme = None
+        self._theme_colors = None
+        self._theme_poll_id = None
+        self.style = ttk.Style(self.root)
         self.video_ratio_options = [
             "3:2 (GBA)",
             "16:9 (Standard)",
@@ -178,6 +238,7 @@ class App:
         self.engine.set_backend_getter(lambda: self.active_backend)
 
         self._build_ui()
+        self.apply_theme_setting(self._theme_setting)
         self._build_context_menu()
         self.apply_video_ratio(persist=False)
         self._schedule_frame_update()
@@ -199,6 +260,216 @@ class App:
         name = os.path.basename(self.script_path) if self.script_path else "(unsaved script)"
         star = " *" if self.dirty else ""
         self.root.title(f"Controller Macro Runner - {name}{star}")
+
+    def apply_theme_setting(self, theme_setting: str):
+        theme_setting = normalize_theme_setting(theme_setting)
+        self._theme_setting = theme_setting
+        self._apply_theme(resolve_theme_mode(theme_setting))
+        self._restart_theme_poll()
+
+    def _restart_theme_poll(self):
+        if self._theme_poll_id is not None:
+            try:
+                self.root.after_cancel(self._theme_poll_id)
+            except Exception:
+                pass
+            self._theme_poll_id = None
+        if self._theme_setting == "auto":
+            self._theme_poll_id = self.root.after(2000, self._poll_system_theme)
+
+    def _poll_system_theme(self):
+        if not self.root.winfo_exists() or self._theme_setting != "auto":
+            self._theme_poll_id = None
+            return
+        mode = resolve_theme_mode("auto")
+        if mode != self._resolved_theme:
+            self._apply_theme(mode)
+        self._theme_poll_id = self.root.after(2000, self._poll_system_theme)
+
+    def _apply_theme(self, mode: str):
+        mode = "dark" if mode == "dark" else "light"
+        if mode == self._resolved_theme:
+            return
+        colors = THEME_COLORS[mode]
+        outline = colors["border"]
+        self._resolved_theme = mode
+        self._theme_colors = colors
+
+        try:
+            self.style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        self.root.configure(bg=colors["bg"])
+        self.style.configure(
+            ".",
+            background=colors["bg"],
+            foreground=colors["text"],
+            fieldbackground=colors["entry_bg"],
+        )
+        self.style.configure("TFrame", background=colors["bg"])
+        self.style.configure("TLabel", background=colors["bg"], foreground=colors["text"])
+        self.style.configure(
+            "TLabelframe",
+            background=colors["bg"],
+            foreground=colors["text"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.configure("TLabelframe.Label", background=colors["bg"], foreground=colors["text"])
+        self.style.configure(
+            "TButton",
+            background=colors["button_bg"],
+            foreground=colors["button_fg"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+            focuscolor=outline,
+        )
+        self.style.map(
+            "TButton",
+            background=[("active", colors["select_bg"])],
+            foreground=[("active", colors["button_fg"])],
+        )
+        self.style.configure(
+            "TCheckbutton",
+            background=colors["bg"],
+            foreground=colors["text"],
+        )
+        self.style.map(
+            "TCheckbutton",
+            background=[("active", colors["panel"])],
+            foreground=[("active", colors["text"])],
+        )
+        self.style.configure(
+            "TRadiobutton",
+            background=colors["bg"],
+            foreground=colors["text"],
+        )
+        self.style.map(
+            "TRadiobutton",
+            background=[("active", colors["panel"])],
+            foreground=[("active", colors["text"])],
+        )
+        self.style.configure(
+            "TEntry",
+            fieldbackground=colors["entry_bg"],
+            foreground=colors["text"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.map(
+            "TEntry",
+            fieldbackground=[("disabled", colors["bg"]), ("!disabled", colors["entry_bg"])],
+            foreground=[("disabled", colors["muted"]), ("!disabled", colors["text"])],
+        )
+        self.style.configure(
+            "TCombobox",
+            fieldbackground=colors["entry_bg"],
+            foreground=colors["text"],
+            background=colors["panel"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", colors["entry_bg"])],
+            foreground=[("readonly", colors["text"])],
+        )
+        self.style.configure(
+            "TScrollbar",
+            background=colors["button_bg"],
+            troughcolor=colors["pane_bg"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.map(
+            "TScrollbar",
+            background=[("active", colors["select_bg"])],
+        )
+        self.root.option_add("*TCombobox*Listbox.background", colors["tree_bg"])
+        self.root.option_add("*TCombobox*Listbox.foreground", colors["tree_fg"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", colors["select_bg"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", colors["select_fg"])
+        self.root.option_add("*Listbox.background", colors["tree_bg"])
+        self.root.option_add("*Listbox.foreground", colors["tree_fg"])
+        self.root.option_add("*Listbox.selectBackground", colors["select_bg"])
+        self.root.option_add("*Listbox.selectForeground", colors["select_fg"])
+        self.style.configure(
+            "Treeview",
+            background=colors["tree_bg"],
+            fieldbackground=colors["tree_bg"],
+            foreground=colors["tree_fg"],
+            relief="flat",
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.map(
+            "Treeview",
+            background=[("selected", colors["select_bg"])],
+            foreground=[("selected", colors["select_fg"])],
+        )
+        self.style.configure(
+            "Treeview.Heading",
+            background=colors["panel"],
+            foreground=colors["text"],
+            relief="flat",
+        )
+        self.style.map(
+            "Treeview.Heading",
+            background=[("active", colors["select_bg"])],
+        )
+        self.style.configure(
+            "TNotebook",
+            background=colors["bg"],
+        )
+        self.style.configure(
+            "TNotebook.Tab",
+            background=colors["panel"],
+            foreground=colors["text"],
+            padding=(8, 4),
+        )
+        self.style.map(
+            "TNotebook.Tab",
+            background=[("selected", colors["bg"]), ("active", colors["select_bg"])],
+            foreground=[("selected", colors["text"])],
+        )
+
+        if hasattr(self, "main_pane"):
+            self.main_pane.configure(bg=colors["pane_bg"])
+        if hasattr(self, "right_split"):
+            self.right_split.configure(bg=colors["pane_bg"])
+        if hasattr(self, "script_text"):
+            self._apply_script_text_theme(colors)
+
+    def _apply_script_text_theme(self, colors: dict):
+        self.script_text.configure(
+            background=colors["text_bg"],
+            foreground=colors["text_fg"],
+            insertbackground=colors["text_fg"],
+            selectbackground=colors["text_sel_bg"],
+            selectforeground=colors["text_sel_fg"],
+            highlightbackground=colors["border"],
+            highlightcolor=colors["border"],
+        )
+        self.script_text.tag_configure("ip", background=colors["ip_bg"])
+        self.script_text.tag_configure("comment", foreground=colors["comment_fg"])
+        self.script_text.tag_configure("variable", foreground=colors["variable_fg"])
+        self.script_text.tag_configure("math", foreground=colors["math_fg"])
+        self.script_text.tag_configure("selected", background=colors["selected_bg"])
+
+    def _stop_theme_poll(self):
+        if self._theme_poll_id is not None:
+            try:
+                self.root.after_cancel(self._theme_poll_id)
+            except Exception:
+                pass
+            self._theme_poll_id = None
 
     # ---- status
     def set_status(self, msg):
@@ -223,33 +494,42 @@ class App:
         # Top bar
         top = ttk.Frame(outer)
         top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(1, weight=1)
         top.columnconfigure(13, weight=1)
 
-        ttk.Checkbutton(top, text="Camera-less \nKeyboard Control", variable=self.kb_enabled,
-                        command=self._on_keyboard_toggle).grid(row=1, column=4, columnspan=2, padx=(10, 6), sticky="w")
+        # Backend Selectors
+        ttk.Label(top, text="Output:").grid(row=1, column=4, sticky="w")
+        self.backend_combo = ttk.Combobox(
+            top, textvariable=self.backend_var, state="readonly",
+            values=["USB Serial", "3DS Input Redirection"], width=12
+        )
+        self.backend_combo.grid(row=1, column=5, sticky="ew", padx=(6, 6),pady=(4,0))
+        self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
+
+        # initialize backend selection
+        self.on_backend_changed()
+
         ttk.Button(top, text="Settings...", command=self.open_settings_dialog).grid(row=1, column=6, padx=(0, 6))
 
         # Camera controls
         ttk.Label(top, text="Camera:").grid(row=0, column=0, sticky="w")
         self.cam_var = tk.StringVar()
-        self.cam_combo = ttk.Combobox(top, textvariable=self.cam_var, state="readonly", width=28)
-        self.cam_combo.grid(row=0, column=1, sticky="ew", padx=(6, 6))
+        self.cam_combo = ttk.Combobox(top, textvariable=self.cam_var, state="readonly", width=24)
+        self.cam_combo.grid(row=0, column=1, sticky="w", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
-        self.cam_toggle_btn.grid(row=0, column=3, padx=(6, 6))
+        self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
 
         self.cam_display_btn = ttk.Button(top, text="Show Cam", command=self.toggle_camera_panel)
-        self.cam_display_btn.grid(row=1, column=3, padx=(6,6))
+        self.cam_display_btn.grid(row=1, column=3, padx=(0,6))
 
         ttk.Label(top, text="Cam Ratio:").grid(row=1, column=0, sticky="w")
 
         self.ratio_var = tk.StringVar(value=self._initial_camera_ratio)
         self.ratio_combo = ttk.Combobox(
             top, textvariable=self.ratio_var, state="readonly",
-            values=self.video_ratio_options, width=6
+            values=self.video_ratio_options, width=24
         )
-        self.ratio_combo.grid(row=1, column=1, sticky="ew", padx=(6, 6))
+        self.ratio_combo.grid(row=1, column=1, sticky="w", padx=(6, 6))
 
         ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 6))
 
@@ -258,7 +538,7 @@ class App:
         # Serial controls
         ttk.Label(top, text="COM:").grid(row=0, column=4, sticky="w")
         self.com_var = tk.StringVar()
-        self.com_combo = ttk.Combobox(top, textvariable=self.com_var, state="readonly", width=10)
+        self.com_combo = ttk.Combobox(top, textvariable=self.com_var, state="readonly", width=12)
         self.com_combo.grid(row=0, column=5, sticky="w", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_ports).grid(row=0, column=6, padx=(0, 6))
         self.ser_btn = ttk.Button(top, text="Connect", command=self.toggle_serial)
@@ -279,25 +559,19 @@ class App:
 
         ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
 
-        # Backend Selectors
-        ttk.Label(top, text="Output:").grid(row=2, column=0, sticky="w")
+        
 
-        self.backend_combo = ttk.Combobox(
-            top, textvariable=self.backend_var, state="readonly",
-            values=["USB Serial", "3DS Input Redirection"], width=20
-        )
-        self.backend_combo.grid(row=2, column=1, sticky="ew", padx=(6, 6),pady=(4,0))
-        self.backend_combo.bind("<<ComboboxSelected>>", lambda e: self.on_backend_changed())
+        ttk.Checkbutton(top, text="Camera-less \nKeyboard Control", variable=self.kb_enabled,
+                        command=self._on_keyboard_toggle).grid(row=2, column=0, columnspan=2, padx=(10, 6), sticky="w")
 
-        # initialize backend selection
-        self.on_backend_changed()
+        
 
 
 
         # Script file controls
         ttk.Label(top, text="Script:").grid(row=0, column=12, sticky="w")
         self.script_var = tk.StringVar()
-        self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=26)
+        self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=24)
         self.script_combo.grid(row=0, column=13, sticky="ew", padx=(6, 6))
         ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 6))
         ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
@@ -399,6 +673,7 @@ class App:
         right_split = tk.PanedWindow(right, orient=tk.VERTICAL, sashrelief=tk.RAISED, sashwidth=6, showhandle=False, bd=0)
         right_split.grid(row=0, column=0, sticky="nsew")
         right.rowconfigure(0, weight=1)
+        self.right_split = right_split
 
         # --- Script viewer
         script_box = ttk.LabelFrame(right_split, text="Script Commands (right-click menu, double-click edit)")
@@ -426,12 +701,12 @@ class App:
 
         btnrow = ttk.Frame(script_box)
         btnrow.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ttk.Button(btnrow, text="Add", command=self.add_command).pack(side="left", padx=2)
-        ttk.Button(btnrow, text="Edit", command=self.edit_command).pack(side="left", padx=2)
-        ttk.Button(btnrow, text="Delete", command=self.delete_command).pack(side="left", padx=2)
-        ttk.Button(btnrow, text="Up", command=lambda: self.move_command(-1)).pack(side="left", padx=2)
-        ttk.Button(btnrow, text="Down", command=lambda: self.move_command(1)).pack(side="left", padx=2)
-        ttk.Button(btnrow, text="Comment", command=self.add_comment).pack(side="left", padx=2)
+        ttk.Button(btnrow, text="Add", command=self.add_command).pack(side="left", padx=2,pady=(0,4))
+        ttk.Button(btnrow, text="Edit", command=self.edit_command).pack(side="left", padx=2,pady=(0,4))
+        ttk.Button(btnrow, text="Delete", command=self.delete_command).pack(side="left", padx=2,pady=(0,4))
+        ttk.Button(btnrow, text="Up", command=lambda: self.move_command(-1)).pack(side="left", padx=2,pady=(0,4))
+        ttk.Button(btnrow, text="Down", command=lambda: self.move_command(1)).pack(side="left", padx=2,pady=(0,4))
+        ttk.Button(btnrow, text="Comment", command=self.add_comment).pack(side="left", padx=2,pady=(0,4))
 
         # Indent view toggle (if you already have it, keep yours)
         self.indent_var = tk.BooleanVar(value=True)
@@ -1638,9 +1913,14 @@ class App:
             self.threeds_ip_var.set(threeds["ip"])
             self.threeds_port_var.set(str(threeds["port"]))
 
+            # Apply theme
+            theme_setting = settings.get("theme", "auto")
+            self.apply_theme_setting(theme_setting)
+
             # Save to file
             self._settings["keybindings"] = settings["keybindings"]
             self._settings["threeds"] = settings["threeds"]
+            self._settings["theme"] = theme_setting
             if save_settings(self._settings):
                 self.set_status("Settings saved.")
             else:
@@ -1651,6 +1931,7 @@ class App:
             keybindings=self.kb_bindings,
             threeds_ip=self.threeds_ip_var.get(),
             threeds_port=port,
+            theme_mode=self._theme_setting,
             on_save_callback=on_save
         )
         self.root.wait_window(dialog)
@@ -2496,6 +2777,7 @@ class App:
         except Exception:
             pass
 
+        self._stop_theme_poll()
         self.root.destroy()
 
 

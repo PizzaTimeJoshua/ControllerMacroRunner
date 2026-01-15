@@ -13,10 +13,10 @@ from utils import list_python_files, get_default_keybindings
 
 
 class SettingsDialog(tk.Toplevel):
-    """Dialog for editing application settings including keybinds and 3DS IP."""
+    """Dialog for editing application settings including keybinds, 3DS IP, and theme."""
 
     def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
-                 on_save_callback=None):
+                 theme_mode: str = "auto", on_save_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.result = None
@@ -27,6 +27,16 @@ class SettingsDialog(tk.Toplevel):
         self.threeds_ip = threeds_ip
         self.threeds_port = threeds_port
         self._rebinding_target = None
+
+        self._theme_label_to_value = {
+            "Auto (System)": "auto",
+            "Dark": "dark",
+            "Light": "light",
+        }
+        self._theme_value_to_label = {v: k for k, v in self._theme_label_to_value.items()}
+        self.theme_var = tk.StringVar(
+            value=self._theme_value_to_label.get(theme_mode, "Auto (System)")
+        )
 
         self.title("Settings")
         self.transient(parent)
@@ -47,6 +57,7 @@ class SettingsDialog(tk.Toplevel):
         # Create tabs
         self._create_keybinds_tab()
         self._create_threeds_tab()
+        self._create_appearance_tab()
 
         # Bottom buttons
         btn_frame = ttk.Frame(main)
@@ -134,6 +145,31 @@ class SettingsDialog(tk.Toplevel):
         # Default port hint
         ttk.Label(tab, text="Default port is 4950", foreground="gray").grid(
             row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+    def _create_appearance_tab(self):
+        """Create the appearance settings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Appearance")
+
+        ttk.Label(
+            tab,
+            text="Theme Mode:",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+
+        theme_combo = ttk.Combobox(
+            tab,
+            textvariable=self.theme_var,
+            state="readonly",
+            values=list(self._theme_label_to_value.keys()),
+            width=18,
+        )
+        theme_combo.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 6))
+
+        ttk.Label(
+            tab,
+            text="Auto follows the system app theme setting.",
+            foreground="gray",
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
 
     def _refresh_keybinds_tree(self):
         """Refresh the keybindings treeview."""
@@ -230,12 +266,16 @@ class SettingsDialog(tk.Toplevel):
             return
 
         # Build result
+        theme_label = self.theme_var.get()
+        theme_value = self._theme_label_to_value.get(theme_label, "auto")
+
         self.result = {
             "keybindings": self.keybindings.copy(),
             "threeds": {
                 "ip": ip,
                 "port": port,
-            }
+            },
+            "theme": theme_value,
         }
 
         # Call save callback if provided

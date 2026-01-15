@@ -122,6 +122,7 @@ DEFAULT_SETTINGS = {
         "port": 4950,
     },
     "camera_ratio": "3:2 (GBA)",
+    "theme": "auto",
 }
 
 
@@ -146,6 +147,9 @@ def load_settings() -> dict:
             result["threeds"] = {**DEFAULT_SETTINGS["threeds"], **loaded["threeds"]}
         if isinstance(loaded.get("camera_ratio"), str):
             result["camera_ratio"] = loaded["camera_ratio"]
+        if isinstance(loaded.get("theme"), str):
+            theme = normalize_theme_setting(loaded["theme"])
+            result["theme"] = theme
 
         return result
     except Exception:
@@ -168,3 +172,33 @@ def save_settings(settings: dict) -> bool:
 def get_default_keybindings() -> dict:
     """Return a copy of the default keybindings."""
     return DEFAULT_SETTINGS["keybindings"].copy()
+
+
+def normalize_theme_setting(value: str) -> str:
+    """Normalize theme setting to 'auto', 'dark', or 'light'."""
+    value = (value or "").strip().lower()
+    if value in ("auto", "dark", "light"):
+        return value
+    return "auto"
+
+
+def get_system_theme() -> str:
+    """Return the current system theme as 'dark' or 'light'."""
+    if sys.platform != "win32":
+        return "light"
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        return "light" if int(value) else "dark"
+    except Exception:
+        return "light"
+
+
+def resolve_theme_mode(setting: str) -> str:
+    """Resolve a theme setting into 'dark' or 'light'."""
+    setting = normalize_theme_setting(setting)
+    if setting == "auto":
+        return get_system_theme()
+    return setting
