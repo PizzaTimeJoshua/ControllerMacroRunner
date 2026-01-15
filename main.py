@@ -462,7 +462,9 @@ class App:
         self.script_text.tag_configure("ip", background="#dbeafe")
         self.script_text.tag_configure("comment", foreground="#228B22")  # Forest green
         self.script_text.tag_configure("variable", foreground="#0066CC")  # Blue
+        self.script_text.tag_configure("math", foreground="#b58900")  # Yellow
         self.script_text.tag_configure("selected", background="#e0e0e0")  # Selected line
+        self.script_text.tag_raise("variable", "math")
         self.script_text.bind("<Button-3>", self._on_script_right_click)
         self.script_text.bind("<Double-1>", self._on_script_double_click)
         self.script_text.bind("<Button-1>", self._on_script_click)
@@ -1862,6 +1864,18 @@ class App:
         indent_on = bool(self.indent_var.get()) if hasattr(self, "indent_var") else True
         depth = 0
 
+        def _collect_math_exprs(value, out):
+            if isinstance(value, str):
+                if value.startswith("=") and len(value) > 1:
+                    out.append(value)
+                return
+            if isinstance(value, dict):
+                for v in value.values():
+                    _collect_math_exprs(v, out)
+            elif isinstance(value, (list, tuple)):
+                for v in value:
+                    _collect_math_exprs(v, out)
+
         for i, c in enumerate(self.engine.commands):
             cmd = c.get("cmd")
             spec = self.engine.registry.get(cmd)
@@ -1891,6 +1905,16 @@ class App:
                 # Search after the line number (skip first 6 chars: "   0  ")
                 content_start_col = 6
                 line_num = i + 1  # Text widget is 1-indexed
+
+                math_exprs = []
+                _collect_math_exprs(c, math_exprs)
+                if math_exprs:
+                    haystack = line_text[content_start_col:]
+                    for expr in dict.fromkeys(math_exprs):
+                        for match in re.finditer(re.escape(expr), haystack):
+                            expr_start = f"{line_num}.{content_start_col + match.start()}"
+                            expr_end = f"{line_num}.{content_start_col + match.end()}"
+                            self.script_text.tag_add("math", expr_start, expr_end)
 
                 # Find all variable references in the line
                 for match in re.finditer(r'\$\w+', line_text[content_start_col:]):
