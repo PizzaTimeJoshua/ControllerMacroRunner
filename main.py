@@ -73,6 +73,7 @@ THEME_COLORS = {
         "tree_fg": "#1f2328",
         "text_bg": "#fbfbfc",
         "text_fg": "#1f2328",
+        "insert_fg": "#1f2328",
         "text_sel_bg": "#dbeafe",
         "text_sel_fg": "#111827",
         "pane_bg": "#e9eaee",
@@ -98,6 +99,7 @@ THEME_COLORS = {
         "tree_fg": "#e6e6e6",
         "text_bg": "#1c1f24",
         "text_fg": "#e6e6e6",
+        "insert_fg": "#ffffff",
         "text_sel_bg": "#2e3f59",
         "text_sel_fg": "#ffffff",
         "pane_bg": "#1b1d21",
@@ -124,6 +126,10 @@ class App:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         self.root.geometry("1280x700")
+        try:
+            self.root.iconbitmap("bin/icon.ico")
+        except:
+            pass
 
         # --- Load settings from file
         self._settings = load_settings()
@@ -357,6 +363,7 @@ class App:
             "TEntry",
             fieldbackground=colors["entry_bg"],
             foreground=colors["text"],
+            insertcolor=colors["insert_fg"],
             bordercolor=outline,
             lightcolor=outline,
             darkcolor=outline,
@@ -371,6 +378,7 @@ class App:
             fieldbackground=colors["entry_bg"],
             foreground=colors["text"],
             background=colors["panel"],
+            insertcolor=colors["insert_fg"],
             bordercolor=outline,
             lightcolor=outline,
             darkcolor=outline,
@@ -452,7 +460,7 @@ class App:
         self.script_text.configure(
             background=colors["text_bg"],
             foreground=colors["text_fg"],
-            insertbackground=colors["text_fg"],
+            insertbackground=colors["insert_fg"],
             selectbackground=colors["text_sel_bg"],
             selectforeground=colors["text_sel_fg"],
             highlightbackground=colors["border"],
@@ -509,14 +517,14 @@ class App:
         # initialize backend selection
         self.on_backend_changed()
 
-        ttk.Button(top, text="Settings...", command=self.open_settings_dialog).grid(row=1, column=6, padx=(0, 6))
+        ttk.Button(top, text="Settings...", command=self.open_settings_dialog).grid(row=1, column=6, padx=(0, 0))
 
         # Camera controls
         ttk.Label(top, text="Camera:").grid(row=0, column=0, sticky="w")
         self.cam_var = tk.StringVar()
-        self.cam_combo = ttk.Combobox(top, textvariable=self.cam_var, state="readonly", width=24)
+        self.cam_combo = ttk.Combobox(top, textvariable=self.cam_var, state="readonly", width=16)
         self.cam_combo.grid(row=0, column=1, sticky="w", padx=(6, 6))
-        ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 6))
+        ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 0))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
         self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
 
@@ -528,11 +536,11 @@ class App:
         self.ratio_var = tk.StringVar(value=self._initial_camera_ratio)
         self.ratio_combo = ttk.Combobox(
             top, textvariable=self.ratio_var, state="readonly",
-            values=self.video_ratio_options, width=24
+            values=self.video_ratio_options, width=16
         )
         self.ratio_combo.grid(row=1, column=1, sticky="w", padx=(6, 6))
 
-        ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 6))
+        ttk.Button(top, text="Apply", command=self.apply_video_ratio).grid(row=1, column=2, padx=(0, 0))
 
 
 
@@ -541,9 +549,9 @@ class App:
         self.com_var = tk.StringVar()
         self.com_combo = ttk.Combobox(top, textvariable=self.com_var, state="readonly", width=12)
         self.com_combo.grid(row=0, column=5, sticky="w", padx=(6, 6))
-        ttk.Button(top, text="Refresh", command=self.refresh_ports).grid(row=0, column=6, padx=(0, 6))
+        ttk.Button(top, text="Refresh", command=self.refresh_ports).grid(row=0, column=6, padx=(0, 0))
         self.ser_btn = ttk.Button(top, text="Connect", command=self.toggle_serial)
-        self.ser_btn.grid(row=0, column=7, sticky="w", padx=(0, 18))
+        self.ser_btn.grid(row=0, column=7, sticky="w", padx=(0, 4))
 
         # Channel controls
         ttk.Label(top, text="Channel:").grid(row=0, column=8, sticky="w")  # adjust column if needed
@@ -558,7 +566,7 @@ class App:
         )
         self.chan_combo.grid(row=0, column=9, sticky="w", padx=(6, 6))
 
-        ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 18))
+        ttk.Button(top, text="Set Channel", command=self.set_channel).grid(row=0, column=10, padx=(0, 4))
 
         
 
@@ -574,12 +582,12 @@ class App:
         self.script_var = tk.StringVar()
         self.script_combo = ttk.Combobox(top, textvariable=self.script_var, state="readonly", width=24)
         self.script_combo.grid(row=0, column=13, sticky="ew", padx=(6, 6))
-        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 6))
-        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 6))
+        ttk.Button(top, text="Refresh", command=self.refresh_scripts).grid(row=0, column=14, padx=(0, 0))
+        ttk.Button(top, text="Load", command=self.load_script_from_dropdown).grid(row=0, column=15, padx=(0, 0))
         ttk.Button(top, text="New", command=self.new_script).grid(row=0, column=16, padx=(0, 6))
 
-        ttk.Button(top, text="Export .py", command= lambda: ScriptToPy.export_script_to_python(self)).grid(row=1, column=14, padx=(0, 6))
-        ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=15, padx=(0, 6))
+        ttk.Button(top, text="Export .py", command= lambda: ScriptToPy.export_script_to_python(self)).grid(row=1, column=14, padx=(0, 0))
+        ttk.Button(top, text="Save", command=self.save_script).grid(row=1, column=15, padx=(0, 0))
         ttk.Button(top, text="Save As", command=self.save_script_as).grid(row=1, column=16, padx=(0, 6))
 
         # Run controls
