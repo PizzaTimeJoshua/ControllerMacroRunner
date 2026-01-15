@@ -121,6 +121,7 @@ DEFAULT_SETTINGS = {
         "ip": "192.168.1.1",
         "port": 4950,
     },
+    "camera_ratio": "3:2 (GBA)",
 }
 
 
@@ -143,6 +144,8 @@ def load_settings() -> dict:
             result["keybindings"] = loaded["keybindings"]
         if "threeds" in loaded:
             result["threeds"] = {**DEFAULT_SETTINGS["threeds"], **loaded["threeds"]}
+        if isinstance(loaded.get("camera_ratio"), str):
+            result["camera_ratio"] = loaded["camera_ratio"]
 
         return result
     except Exception:

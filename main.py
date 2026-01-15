@@ -16,6 +16,7 @@ import math
 import threading
 import subprocess
 import tkinter as tk
+import copy
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import numpy as np
 from PIL import Image, ImageTk
@@ -71,6 +72,18 @@ class App:
 
         # --- Load settings from file
         self._settings = load_settings()
+        self.video_ratio_options = [
+            "3:2 (GBA)",
+            "16:9 (Standard)",
+            "4:3 (DS Single Screen)",
+            "2:3 (DS Dual Screen)",
+            "5:3 (3DS Top Screen)",
+            "5:6 (3DS Dual Screen)",
+        ]
+        self._initial_camera_ratio = str(self._settings.get("camera_ratio", "3:2 (GBA)")).strip()
+        if self._initial_camera_ratio not in self.video_ratio_options:
+            self._initial_camera_ratio = "3:2 (GBA)"
+        self._settings["camera_ratio"] = self._initial_camera_ratio
 
         # --- keyboard controller mode (manual control)
         self.kb_enabled = tk.BooleanVar(value=False)
@@ -166,6 +179,7 @@ class App:
 
         self._build_ui()
         self._build_context_menu()
+        self.apply_video_ratio(persist=False)
         self._schedule_frame_update()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -230,10 +244,10 @@ class App:
 
         ttk.Label(top, text="Cam Ratio:").grid(row=1, column=0, sticky="w")
 
-        self.ratio_var = tk.StringVar(value="3:2 (GBA)")
+        self.ratio_var = tk.StringVar(value=self._initial_camera_ratio)
         self.ratio_combo = ttk.Combobox(
             top, textvariable=self.ratio_var, state="readonly",
-            values=["3:2 (GBA)","16:9 (Standard)","4:3 (DS Single Screen)", "2:3 (DS Dual Screen)", "5:3 (3DS Top Screen)", "5:6 (3DS Dual Screen)"], width=6
+            values=self.video_ratio_options, width=6
         )
         self.ratio_combo.grid(row=1, column=1, sticky="ew", padx=(6, 6))
 
@@ -829,6 +843,8 @@ class App:
         self.ctx = tk.Menu(self.root, tearoff=0)
         self.ctx.add_command(label="Add", command=self.add_command)
         self.ctx.add_command(label="Edit", command=self.edit_command)
+        self.ctx.add_command(label="Copy", command=self.copy_command)
+        self.ctx.add_command(label="Paste", command=self.paste_command)
         self.ctx.add_command(label="Delete", command=self.delete_command)
         self.ctx.add_separator()
         self.ctx.add_command(label="Move Up", command=lambda: self.move_command(-1))
@@ -1075,7 +1091,7 @@ class App:
         self.set_status("Camera panel shown.")
         self.cam_display_btn.configure(text="Hide Cam")
 
-    def apply_video_ratio(self):
+    def apply_video_ratio(self, persist=True):
         ratio = (self.ratio_var.get()).strip()
 
         # choose width based on base_video_width, compute height from ratio
@@ -1114,7 +1130,12 @@ class App:
         self._disp_img_w = 0
         self._disp_img_h = 0
 
-        self.set_status(f"Video ratio set to {ratio} ({w}x{h}).")
+        status_msg = f"Video ratio set to {ratio} ({w}x{h})."
+        if persist:
+            self._settings["camera_ratio"] = ratio
+            if not save_settings(self._settings):
+                status_msg = f"{status_msg} Settings save failed."
+        self.set_status(status_msg)
 
         if was_running:
             self.start_camera()
@@ -1616,8 +1637,9 @@ class App:
             self.threeds_port_var.set(str(threeds["port"]))
 
             # Save to file
-            self._settings = settings
-            if save_settings(settings):
+            self._settings["keybindings"] = settings["keybindings"]
+            self._settings["threeds"] = settings["threeds"]
+            if save_settings(self._settings):
                 self.set_status("Settings saved.")
             else:
                 self.set_status("Settings updated (could not save to file).")
@@ -1956,6 +1978,75 @@ class App:
         if msgs:
             self.set_status("Script structure incomplete (" + ", ".join(msgs) + "). Add end_if / end_while.")
 
+
+
+
+    def _get_script_clipboard_payload(self):
+        try:
+            raw = self.root.clipboard_get()
+        except tk.TclError:
+            return None
+        raw = raw.strip()
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    def _normalize_command_payload(self, payload):
+        if isinstance(payload, dict) and payload.get("cmd"):
+            return [payload]
+        if isinstance(payload, list) and payload:
+            if all(isinstance(item, dict) and item.get("cmd") for item in payload):
+                return payload
+        return None
+
+    def copy_command(self):
+        idx = self._get_selected_index()
+        if idx is None:
+            messagebox.showinfo("Copy", "Select a command to copy.")
+            return
+
+        payload = [self.engine.commands[idx]]
+        self._script_cmd_clipboard = copy.deepcopy(payload)
+        self._copy_to_clipboard(json.dumps(payload, ensure_ascii=False, indent=2))
+        self.set_status("Command copied to clipboard.")
+
+    def paste_command(self):
+        if self.engine.running:
+            messagebox.showwarning("Running", "Stop the script before editing.")
+            return
+
+        payload = self._get_script_clipboard_payload()
+        commands = self._normalize_command_payload(payload)
+        if commands is None:
+            commands = copy.deepcopy(getattr(self, "_script_cmd_clipboard", None) or [])
+        else:
+            commands = copy.deepcopy(commands)
+
+        if not commands:
+            messagebox.showinfo("Paste", "Clipboard does not contain a command.")
+            return
+
+        idx = self._get_selected_index()
+        insert_at = (idx + 1) if idx is not None else len(self.engine.commands)
+        last_cmd_idx = None
+
+        for cmd in commands:
+            self.engine.commands.insert(insert_at, cmd)
+            last_cmd_idx = insert_at
+            insert_at += 1
+            if cmd.get("cmd") == "if":
+                self.engine.commands.insert(insert_at, {"cmd": "end_if"})
+                insert_at += 1
+            elif cmd.get("cmd") == "while":
+                self.engine.commands.insert(insert_at, {"cmd": "end_while"})
+                insert_at += 1
+
+        self._reindex_after_edit()
+        if last_cmd_idx is not None:
+            self._select_script_line(last_cmd_idx)
 
 
     def add_command(self):

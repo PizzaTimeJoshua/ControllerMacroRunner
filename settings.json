@@ -20,5 +20,6 @@
   "threeds": {
     "ip": "192.168.1.10",
     "port": 4950
-  }
+  },
+  "camera_ratio": "3:2 (GBA)"
 }
