@@ -222,7 +222,7 @@ class PABotBaseSerialBackend:
         self._last_sent_at = 0.0
         self._last_sent_duration_ms = 0
         self._command_timeout_s = 0.2
-        self._use_stop_on_change = True
+        self._use_interrupt_on_change = True
         self._wait_for_ack = False
 
     @property
@@ -306,7 +306,7 @@ class PABotBaseSerialBackend:
         except Exception:
             pass
 
-    def _send_state(self, buttons, dpad, left_x, left_y, right_x, right_y, duration_ms):
+    def _send_state(self, buttons, dpad, left_x, left_y, right_x, right_y, duration_ms, interrupt_next=False):
         if not self.connected:
             return False
         duration_ms = int(round(duration_ms))
@@ -348,6 +348,10 @@ class PABotBaseSerialBackend:
                         duration_ms=duration_ms,
                         wait_for_ack=False,
                     )
+                if ok and interrupt_next:
+                    self.controller.interrupt_next_command(wait_for_ack=self._wait_for_ack)
+                    ok = True
+                if not self._wait_for_ack:
                     self._drain_serial_input_locked()
             return ok
         except Exception as e:
@@ -411,40 +415,24 @@ class PABotBaseSerialBackend:
         if not self.connected:
             return
         btns, dpad = self._buttons_to_state(buttons)
-        state_changed = False
         with self._lock:
             state_changed = (btns != self._buttons) or (dpad != self._dpad)
             self._buttons = btns
             self._dpad = dpad
-        if state_changed and self._use_stop_on_change:
-            try:
-                with self._io_lock:
-                    self.controller.stop_all_commands(wait_for_ack=self._wait_for_ack)
-                    if not self._wait_for_ack:
-                        self._drain_serial_input_locked()
-            except Exception as e:
-                self.status_cb(f"PABotBase stop error: {e}")
-        self._send_event.set()
+        if state_changed:
+            self._send_event.set()
 
     def set_left_stick(self, x, y):
         if not self.connected:
             return
         left_x = self._stick_axis_to_byte(x)
         left_y = self._stick_axis_to_byte(-y)
-        state_changed = False
         with self._lock:
             state_changed = (left_x != self._left_x) or (left_y != self._left_y)
             self._left_x = left_x
             self._left_y = left_y
-        if state_changed and self._use_stop_on_change:
-            try:
-                with self._io_lock:
-                    self.controller.stop_all_commands(wait_for_ack=self._wait_for_ack)
-                    if not self._wait_for_ack:
-                        self._drain_serial_input_locked()
-            except Exception as e:
-                self.status_cb(f"PABotBase stop error: {e}")
-        self._send_event.set()
+        if state_changed:
+            self._send_event.set()
 
     def reset_left_stick(self):
         self.set_left_stick(0.0, 0.0)
@@ -454,20 +442,12 @@ class PABotBaseSerialBackend:
             return
         right_x = self._stick_axis_to_byte(x)
         right_y = self._stick_axis_to_byte(-y)
-        state_changed = False
         with self._lock:
             state_changed = (right_x != self._right_x) or (right_y != self._right_y)
             self._right_x = right_x
             self._right_y = right_y
-        if state_changed and self._use_stop_on_change:
-            try:
-                with self._io_lock:
-                    self.controller.stop_all_commands(wait_for_ack=self._wait_for_ack)
-                    if not self._wait_for_ack:
-                        self._drain_serial_input_locked()
-            except Exception as e:
-                self.status_cb(f"PABotBase stop error: {e}")
-        self._send_event.set()
+        if state_changed:
+            self._send_event.set()
 
     def reset_right_stick(self):
         self.set_right_stick(0.0, 0.0)
@@ -504,15 +484,8 @@ class PABotBaseSerialBackend:
             self._left_y = pabotbase.STICK_CENTER
             self._right_x = pabotbase.STICK_CENTER
             self._right_y = pabotbase.STICK_CENTER
-        if state_changed and self._use_stop_on_change:
-            try:
-                with self._io_lock:
-                    self.controller.stop_all_commands(wait_for_ack=self._wait_for_ack)
-                    if not self._wait_for_ack:
-                        self._drain_serial_input_locked()
-            except Exception as e:
-                self.status_cb(f"PABotBase stop error: {e}")
-        self._send_event.set()
+        if state_changed:
+            self._send_event.set()
 
     def _keepalive_loop(self):
         while self._running:
@@ -554,7 +527,7 @@ class PABotBaseSerialBackend:
                 or right_y != last_right_y
             )
             send_needed = False
-            send_stop = False
+            send_interrupt = False
 
             elapsed = 0.0
             duration_s = 0.0
@@ -582,20 +555,11 @@ class PABotBaseSerialBackend:
 
             if state_changed:
                 send_needed = True
-                send_stop = self._use_stop_on_change and active
+                send_interrupt = self._use_interrupt_on_change and active
             elif refresh_due:
                 send_needed = True
 
             if send_needed:
-                if send_stop:
-                    try:
-                        with self._io_lock:
-                            self.controller.stop_all_commands(wait_for_ack=self._wait_for_ack)
-                            if not self._wait_for_ack:
-                                self._drain_serial_input_locked()
-                    except Exception as e:
-                        self.status_cb(f"PABotBase stop error: {e}")
-
                 ok = self._send_state(
                     btns,
                     dpad,
@@ -604,6 +568,7 @@ class PABotBaseSerialBackend:
                     right_x,
                     right_y,
                     self._hold_duration_ms,
+                    interrupt_next=send_interrupt,
                 )
                 if ok:
                     with self._lock:
@@ -649,10 +614,6 @@ class SerialController:
             return
         try:
             self.status_cb(msg)
-        except Exception:
-            pass
-        try:
-            print(msg)
         except Exception:
             pass
 

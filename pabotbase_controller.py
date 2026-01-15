@@ -681,6 +681,26 @@ class PABotBaseController:
         self.seqnum += 1
         return True
 
+    def interrupt_next_command(self, wait_for_ack: bool = True) -> bool:
+        """
+        Interrupt the current command to advance to the next queued command.
+
+        Args:
+            wait_for_ack: If False, fire-and-forget and advance the seqnum.
+
+        Returns:
+            True if interrupt command acknowledged (or sent), False otherwise
+        """
+        if wait_for_ack:
+            response = self._send_request_and_wait(MessageType.REQUEST_NEXT_CMD_INTERRUPT)
+            return response is not None
+
+        seqnum_bytes = struct.pack('<I', self.seqnum)
+        message = PABotBaseMessage(MessageType.REQUEST_NEXT_CMD_INTERRUPT, seqnum_bytes)
+        self._send_message(message)
+        self.seqnum += 1
+        return True
+
     def send_controller_state(self,
                               buttons: Button = Button.NONE,
                               dpad: DPad = DPad.NONE,
