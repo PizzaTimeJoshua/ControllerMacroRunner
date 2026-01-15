@@ -121,6 +121,10 @@ DEFAULT_SETTINGS = {
         "ip": "192.168.1.1",
         "port": 4950,
     },
+    "discord": {
+        "webhook_url": "",
+        "user_id": "",
+    },
     "camera_ratio": "3:2 (GBA)",
     "theme": "auto",
 }
@@ -145,6 +149,8 @@ def load_settings() -> dict:
             result["keybindings"] = loaded["keybindings"]
         if "threeds" in loaded:
             result["threeds"] = {**DEFAULT_SETTINGS["threeds"], **loaded["threeds"]}
+        if "discord" in loaded:
+            result["discord"] = {**DEFAULT_SETTINGS["discord"], **loaded["discord"]}
         if isinstance(loaded.get("camera_ratio"), str):
             result["camera_ratio"] = loaded["camera_ratio"]
         if isinstance(loaded.get("theme"), str):

@@ -478,7 +478,32 @@ OCR a region of the camera frame (requires pytesseract).
 | psm | int | 7 | Tesseract page segmentation mode |
 | whitelist | string | "" | Allowed characters (e.g., "0123456789") |
 
+#### save_frame
+Save the current camera frame to `./saved_images`.
+
+```json
+{"cmd": "save_frame", "filename": "frame.png", "out": "saved_path"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| filename | string | "" | Optional filename (saved under saved_images) |
+| out | string | "" | Variable to store saved path (no $) |
+
 ### Custom Commands
+
+#### discord_status
+Send a Discord webhook status update (optional ping and image).
+
+```json
+{"cmd": "discord_status", "message": "Run complete", "ping": true, "image": "$frame"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| message | string | "" | Message text (supports $var) |
+| ping | bool | false | Ping the configured user ID |
+| image | string | "" | Image file path or $frame |
+
+Configure the webhook URL and optional user ID in **Settings > Discord**.
 
 #### run_python
 Execute a Python script from `./py_scripts`.
@@ -696,6 +721,8 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | if/end_if | Yes | Python if statements |
 | while/end_while | Yes | Python while loops |
 | run_python | Yes | Subprocess call |
+| save_frame | No | Requires camera and filesystem |
+| discord_status | No | Requires Discord webhook |
 | find_color | No | Requires camera |
 | read_text | No | Requires camera + pytesseract |
 | label/goto | No | Not compatible with structured code |

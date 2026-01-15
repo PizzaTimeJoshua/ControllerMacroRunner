@@ -236,6 +236,7 @@ class App:
         self.active_backend = self.serial
 
         self.engine.set_backend_getter(lambda: self.active_backend)
+        self.engine.set_settings_getter(lambda: self._settings)
 
         self._build_ui()
         self.apply_theme_setting(self._theme_setting)
@@ -1920,6 +1921,7 @@ class App:
             # Save to file
             self._settings["keybindings"] = settings["keybindings"]
             self._settings["threeds"] = settings["threeds"]
+            self._settings["discord"] = settings["discord"]
             self._settings["theme"] = theme_setting
             if save_settings(self._settings):
                 self.set_status("Settings saved.")
@@ -1932,6 +1934,7 @@ class App:
             threeds_ip=self.threeds_ip_var.get(),
             threeds_port=port,
             theme_mode=self._theme_setting,
+            discord_settings=self._settings.get("discord", {}),
             on_save_callback=on_save
         )
         self.root.wait_window(dialog)

@@ -16,7 +16,8 @@ class SettingsDialog(tk.Toplevel):
     """Dialog for editing application settings including keybinds, 3DS IP, and theme."""
 
     def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
-                 theme_mode: str = "auto", on_save_callback=None):
+                 theme_mode: str = "auto", discord_settings: dict | None = None,
+                 on_save_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.result = None
@@ -27,6 +28,10 @@ class SettingsDialog(tk.Toplevel):
         self.threeds_ip = threeds_ip
         self.threeds_port = threeds_port
         self._rebinding_target = None
+
+        discord_settings = discord_settings or {}
+        self.discord_webhook_var = tk.StringVar(value=discord_settings.get("webhook_url", ""))
+        self.discord_user_id_var = tk.StringVar(value=discord_settings.get("user_id", ""))
 
         self._theme_label_to_value = {
             "Auto (System)": "auto",
@@ -57,6 +62,7 @@ class SettingsDialog(tk.Toplevel):
         # Create tabs
         self._create_keybinds_tab()
         self._create_threeds_tab()
+        self._create_discord_tab()
         self._create_appearance_tab()
 
         # Bottom buttons
@@ -171,6 +177,31 @@ class SettingsDialog(tk.Toplevel):
             foreground="gray",
         ).grid(row=1, column=0, columnspan=2, sticky="w")
 
+    def _create_discord_tab(self):
+        """Create the Discord webhook settings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Discord")
+        self.discord_tab = tab
+
+        ttk.Label(
+            tab,
+            text="Configure a Discord webhook for status updates.",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        ttk.Label(tab, text="Webhook URL:").grid(row=1, column=0, sticky="w", pady=5)
+        webhook_entry = ttk.Entry(tab, textvariable=self.discord_webhook_var, width=60)
+        webhook_entry.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=5)
+
+        ttk.Label(tab, text="User ID (optional):").grid(row=2, column=0, sticky="w", pady=5)
+        user_id_entry = ttk.Entry(tab, textvariable=self.discord_user_id_var, width=30)
+        user_id_entry.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=5)
+
+        ttk.Label(
+            tab,
+            text="Use a numeric Discord user ID if you want ping support.",
+            foreground="gray",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
     def _refresh_keybinds_tree(self):
         """Refresh the keybindings treeview."""
         self.keybinds_tree.delete(*self.keybinds_tree.get_children())
@@ -269,11 +300,28 @@ class SettingsDialog(tk.Toplevel):
         theme_label = self.theme_var.get()
         theme_value = self._theme_label_to_value.get(theme_label, "auto")
 
+        webhook_url = (self.discord_webhook_var.get() or "").strip()
+        user_id_raw = (self.discord_user_id_var.get() or "").strip()
+        user_id = "".join(ch for ch in user_id_raw if ch.isdigit())
+        if user_id_raw and not user_id:
+            messagebox.showerror(
+                "Invalid Discord User ID",
+                "User ID must be numeric (digits only).",
+                parent=self,
+            )
+            if hasattr(self, "discord_tab"):
+                self.notebook.select(self.discord_tab)
+            return
+
         self.result = {
             "keybindings": self.keybindings.copy(),
             "threeds": {
                 "ip": ip,
                 "port": port,
+            },
+            "discord": {
+                "webhook_url": webhook_url,
+                "user_id": user_id,
             },
             "theme": theme_value,
         }

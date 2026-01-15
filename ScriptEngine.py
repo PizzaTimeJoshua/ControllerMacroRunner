@@ -18,7 +18,13 @@ import ast
 import math
 import re
 import random
+import io
+import mimetypes
+import urllib.request
+import urllib.error
+import uuid
 from tkinter import messagebox
+from utils import exe_dir_path
 
 # Optional OCR support via pytesseract
 try:
@@ -393,11 +399,90 @@ def frame_to_json_payload(frame_bgr: np.ndarray):
     # Convert to RGB for PIL
     rgb = frame_bgr[:, :, ::-1]
     img = Image.fromarray(rgb)
-    import io
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     return {"__frame__": "png_base64", "data_b64": b64}
+
+def frame_to_png_bytes(frame_bgr: np.ndarray):
+    """
+    Convert BGR frame (H,W,3 uint8) to PNG bytes.
+    """
+    if frame_bgr is None:
+        return None
+    rgb = frame_bgr[:, :, ::-1]
+    img = Image.fromarray(rgb)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+def _encode_multipart_form(payload_json: str, file_name: str, file_bytes: bytes, content_type: str):
+    boundary = f"----CMRBoundary{uuid.uuid4().hex}"
+    buf = io.BytesIO()
+
+    def write_line(line: str = ""):
+        buf.write(line.encode("utf-8"))
+        buf.write(b"\r\n")
+
+    write_line(f"--{boundary}")
+    write_line('Content-Disposition: form-data; name="payload_json"')
+    write_line("Content-Type: application/json")
+    write_line()
+    buf.write(payload_json.encode("utf-8"))
+    buf.write(b"\r\n")
+
+    write_line(f"--{boundary}")
+    write_line(f'Content-Disposition: form-data; name="files[0]"; filename="{file_name}"')
+    write_line(f"Content-Type: {content_type}")
+    write_line()
+    buf.write(file_bytes)
+    buf.write(b"\r\n")
+    write_line(f"--{boundary}--")
+
+    body = buf.getvalue()
+    content_type_header = f"multipart/form-data; boundary={boundary}"
+    return body, content_type_header
+
+def send_discord_webhook(url: str, payload: dict, file_tuple=None, timeout_s: int = 10):
+    """
+    Send a Discord webhook with optional image attachment.
+    file_tuple is (filename, bytes, content_type).
+    """
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    if file_tuple:
+        file_name, file_bytes, content_type = file_tuple
+        body, content_type_header = _encode_multipart_form(
+            payload_json, file_name, file_bytes, content_type
+        )
+    else:
+        body = payload_json.encode("utf-8")
+        content_type_header = "application/json"
+
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": content_type_header,
+            "User-Agent": "ControllerMacroRunner",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace").strip()
+        except Exception:
+            pass
+        msg = f"Discord webhook error: HTTP {e.code} {e.reason}"
+        if detail:
+            msg = f"{msg} - {detail}"
+        raise RuntimeError(msg) from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Discord webhook error: {e.reason}") from e
 
 
 # ----------------------------
@@ -690,7 +775,8 @@ def eval_expr(ctx, expr: str):
 # ----------------------------
 
 class ScriptEngine:
-    def __init__(self, serial_ctrl, get_frame_fn, status_cb=None, on_ip_update=None, on_tick=None):
+    def __init__(self, serial_ctrl, get_frame_fn, status_cb=None, on_ip_update=None, on_tick=None,
+                 settings_getter=None):
         self.serial = serial_ctrl
         self.get_frame = get_frame_fn
         self.status_cb = status_cb or (lambda s: None)
@@ -717,6 +803,7 @@ class ScriptEngine:
         self.ip = 0
 
         self._backend_getter = None
+        self._settings_getter = settings_getter or (lambda: {})
 
     def set_backend_getter(self, fn):
         self._backend_getter = fn
@@ -725,6 +812,14 @@ class ScriptEngine:
         if self._backend_getter:
             return self._backend_getter()
         return None
+
+    def set_settings_getter(self, fn):
+        self._settings_getter = fn
+
+    def get_settings(self):
+        if self._settings_getter:
+            return self._settings_getter()
+        return {}
 
 
     def ordered_specs(self):
@@ -872,6 +967,7 @@ class ScriptEngine:
             "get_frame": self.get_frame,
             "ip": self.ip,
             "get_backend": self.get_backend,
+            "get_settings": self.get_settings,
         }
 
         try:
@@ -946,6 +1042,22 @@ class ScriptEngine:
             a = "" if not args else f" args={args}"
             o = "" if not out else f" -> ${out}"
             return f"RunPython {c.get('file')}{a}{o}"
+        def fmt_discord_status(c):
+            msg = c.get("message", "")
+            ping = bool(c.get("ping", False))
+            image = c.get("image", "")
+            flags = []
+            if ping:
+                flags.append("ping")
+            if image:
+                flags.append("image")
+            flag_str = f" ({', '.join(flags)})" if flags else ""
+            return f"DiscordStatus {msg!r}{flag_str}"
+        def fmt_save_frame(c):
+            name = c.get("filename", "")
+            out = (c.get("out") or "").strip()
+            suffix = f" -> ${out}" if out else ""
+            return f"SaveFrame {name!r}{suffix}"
         def fmt_tap_touch(c):
             return f"TapTouch x={c.get('x')} y={c.get('y')} down={c.get('down_time', 0.1)} settle={c.get('settle', 0.1)}"
         def fmt_set_left_stick(c):
@@ -1246,6 +1358,129 @@ class ScriptEngine:
             outvar = (c.get("out") or "").strip()
             if outvar:
                 ctx["vars"][outvar] = res
+
+        def cmd_discord_status(ctx, c):
+            settings = ctx.get("get_settings", lambda: {})()
+            discord_settings = settings.get("discord", {}) if isinstance(settings, dict) else {}
+            webhook_url = (discord_settings.get("webhook_url") or "").strip()
+            if not webhook_url:
+                raise RuntimeError("discord_status: webhook URL is not configured in Settings.")
+
+            user_id = str(discord_settings.get("user_id", "") or "").strip()
+            if user_id and not user_id.isdigit():
+                digits = "".join(ch for ch in user_id if ch.isdigit())
+                if digits:
+                    user_id = digits
+            ping = bool(resolve_value(ctx, c.get("ping", False)))
+            if ping and not user_id:
+                raise RuntimeError("discord_status: ping requested but no Discord user ID is configured.")
+
+            message_raw = c.get("message", "")
+            message_val = resolve_value(ctx, message_raw)
+            message = "" if message_val is None else str(message_val)
+
+            image_raw = c.get("image", "")
+            image_value = image_raw
+            use_frame = False
+            if isinstance(image_raw, str) and image_raw.strip() == "$frame":
+                use_frame = True
+            else:
+                image_value = resolve_value(ctx, image_raw)
+                if isinstance(image_value, str) and image_value.strip() == "$frame":
+                    use_frame = True
+
+            file_tuple = None
+            if use_frame:
+                frame = ctx["get_frame"]()
+                if frame is None:
+                    raise RuntimeError("discord_status: no camera frame available for $frame.")
+                file_bytes = frame_to_png_bytes(frame)
+                if not file_bytes:
+                    raise RuntimeError("discord_status: failed to encode frame.")
+                file_tuple = ("frame.png", file_bytes, "image/png")
+            else:
+                image_path = ""
+                if image_value is not None:
+                    image_path = str(image_value).strip()
+                if image_path:
+                    if not os.path.isabs(image_path):
+                        image_path = exe_dir_path(image_path)
+                    if not os.path.exists(image_path):
+                        raise RuntimeError(f"discord_status: image not found: {image_path}")
+                    with open(image_path, "rb") as f:
+                        file_bytes = f.read()
+                    mime = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+                    file_tuple = (os.path.basename(image_path), file_bytes, mime)
+
+            payload = {}
+            content = message.strip()
+            if ping:
+                mention = f"<@{user_id}>"
+                content = f"{mention} {content}".strip()
+                payload["allowed_mentions"] = {"users": [str(user_id)]}
+            else:
+                payload["allowed_mentions"] = {"parse": []}
+
+            if not content and not file_tuple:
+                raise RuntimeError("discord_status: message is empty and no image provided.")
+
+            if content:
+                payload["content"] = content
+
+            if file_tuple:
+                payload["embeds"] = [{"image": {"url": f"attachment://{file_tuple[0]}"}}]
+
+            send_discord_webhook(webhook_url, payload, file_tuple=file_tuple)
+            self.status_cb("Discord status sent.")
+
+        def cmd_save_frame(ctx, c):
+            frame = ctx["get_frame"]()
+            if frame is None:
+                raise RuntimeError("save_frame: no camera frame available.")
+
+            out_dir = exe_dir_path("saved_images")
+            os.makedirs(out_dir, exist_ok=True)
+
+            filename_raw = c.get("filename", "")
+            filename_val = resolve_value(ctx, filename_raw)
+            filename = "" if filename_val is None else str(filename_val).strip()
+            if filename:
+                name = os.path.basename(filename)
+                if not name:
+                    name = ""
+                if name and not os.path.splitext(name)[1]:
+                    name = f"{name}.png"
+                if not name:
+                    filename = ""
+                else:
+                    filename = name
+
+            if filename:
+                out_path = os.path.join(out_dir, filename)
+            else:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                ms = int((time.time() % 1) * 1000)
+                out_path = os.path.join(out_dir, f"frame_{ts}_{ms:03d}.png")
+
+            if os.path.exists(out_path):
+                base, ext = os.path.splitext(out_path)
+                suffix = 1
+                while True:
+                    candidate = f"{base}_{suffix}{ext}"
+                    if not os.path.exists(candidate):
+                        out_path = candidate
+                        break
+                    suffix += 1
+
+            rgb = frame[:, :, ::-1]
+            img = Image.fromarray(rgb)
+            img.save(out_path, format="PNG")
+
+            outvar = (c.get("out") or "").strip()
+            if outvar:
+                ctx["vars"][outvar] = out_path
+
+            self.status_cb(f"Saved frame: {out_path}")
         def cmd_tap_touch(ctx, c):
             backend = ctx["get_backend"]()
             if backend is None or not getattr(backend, "connected", False):
@@ -1897,6 +2132,21 @@ class ScriptEngine:
                 export_note="Requires camera frame and pytesseract which are unsupported in standalone export."
             ),
             CommandSpec(
+                "save_frame",
+                [],
+                cmd_save_frame,
+                doc="Save the current camera frame to ./saved_images.",
+                arg_schema=[
+                    {"key": "filename", "type": "str", "default": "", "help": "Optional filename (saved under saved_images)."},
+                    {"key": "out", "type": "str", "default": "", "help": "Variable name to store saved path (no $)."},
+                ],
+                format_fn=fmt_save_frame,
+                group="Image",
+                order=30,
+                exportable=False,
+                export_note="Requires camera frame and filesystem access."
+            ),
+            CommandSpec(
                 "run_python",
                 ["file"],
                 cmd_run_python,
@@ -1911,6 +2161,22 @@ class ScriptEngine:
                 format_fn=fmt_run_python,
                 group="Custom",
                 order=10
+            ),
+            CommandSpec(
+                "discord_status",
+                [],
+                cmd_discord_status,
+                doc="Send a Discord webhook status update (optional ping/image). Uses webhook URL and user ID from Settings.",
+                arg_schema=[
+                    {"key": "message", "type": "str", "default": "", "help": "Message text (supports $var)."},
+                    {"key": "ping", "type": "bool", "default": False, "help": "Ping the configured user ID."},
+                    {"key": "image", "type": "str", "default": "", "help": "Image file path or $frame."},
+                ],
+                format_fn=fmt_discord_status,
+                group="Custom",
+                order=20,
+                exportable=False,
+                export_note="Uses Discord webhooks and local files, unsupported in standalone export."
             ),
             CommandSpec(
                 "tap_touch",
