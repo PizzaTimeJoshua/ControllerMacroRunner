@@ -649,14 +649,14 @@ class SerialController:
 
     def _should_probe_pabotbase(self, port):
         override = os.environ.get("CMR_PABOTBASE_PROBE", "").strip().lower()
-        if override in ("0", "false", "no", "off", "skip"):
+        if override in ("0", "false", "no", "off", "skip", "passive"):
             return False, "env=skip"
-        if override in ("1", "true", "yes", "on", "force"):
+        if override in ("1", "true", "yes", "on", "force", "active"):
             return True, "env=force"
 
         info = self._get_port_info(port)
         if info is None:
-            return False, "no port info"
+            return True, "safe probe (no port info)"
 
         haystack = " ".join(
             str(x).lower()
@@ -670,9 +670,9 @@ class SerialController:
         if any(hint in haystack for hint in PABOTBASE_HINTS):
             return True, "hint match"
 
-        return False, "no hint match"
+        return True, "safe probe (default)"
 
-    def _read_pabotbase_response(self, ser, timeout_s, max_log_bytes=64):
+    def _read_pabotbase_response(self, ser, timeout_s, max_log_bytes=64, accept_fn=None):
         start = time.time()
         buffer = bytearray()
         raw_log = bytearray()
@@ -696,7 +696,9 @@ class SerialController:
                     message = pabotbase.PABotBaseMessage.decode(msg_data)
                     if message is not None:
                         del buffer[:i + expected_length]
-                        return message, bytes(raw_log)
+                        if accept_fn is None or accept_fn(message):
+                            return message, bytes(raw_log)
+                        break
 
             time.sleep(0.001)
 
@@ -727,9 +729,39 @@ class SerialController:
                 pass
 
             self._debug(f"PABotBase probe: using seqnum={seqnum}, packet_len={len(message)}.")
+            ack_types = {
+                pabotbase.MessageType.ACK_REQUEST,
+                pabotbase.MessageType.ACK_REQUEST_I8,
+                pabotbase.MessageType.ACK_REQUEST_I16,
+                pabotbase.MessageType.ACK_REQUEST_I32,
+                pabotbase.MessageType.ACK_REQUEST_DATA,
+            }
+
+            def accept_passive(resp):
+                if resp.msg_type == pabotbase.MessageType.ERROR_READY:
+                    return True
+                if resp.msg_type in ack_types:
+                    return len(resp.payload) >= 4
+                return False
+
+            def accept_active(resp):
+                if resp.msg_type not in ack_types:
+                    return False
+                if len(resp.payload) < 4:
+                    return False
+                ack_seqnum = struct.unpack("<I", resp.payload[:4])[0]
+                if ack_seqnum != seqnum:
+                    self._debug(f"PABotBase probe: ack seqnum mismatch ({ack_seqnum}).")
+                    return False
+                return True
+
             if not allow_write:
                 self._debug("PABotBase probe: passive listen only (no writes).")
-                response, raw_log = self._read_pabotbase_response(ser, timeout_s)
+                response, raw_log = self._read_pabotbase_response(
+                    ser,
+                    timeout_s,
+                    accept_fn=accept_passive,
+                )
                 if response is None:
                     if raw_log:
                         hex_dump = " ".join(f"{b:02X}" for b in raw_log)
@@ -751,7 +783,11 @@ class SerialController:
                 ser.write(message)
                 ser.flush()
 
-                response, raw_log = self._read_pabotbase_response(ser, timeout_s)
+                response, raw_log = self._read_pabotbase_response(
+                    ser,
+                    timeout_s,
+                    accept_fn=accept_active,
+                )
                 if response is None:
                     if raw_log:
                         hex_dump = " ".join(f"{b:02X}" for b in raw_log)
@@ -764,27 +800,9 @@ class SerialController:
                     f"PABotBase probe: response type=0x{response.msg_type:02X} "
                     f"payload_len={len(response.payload)}."
                 )
-                if response.msg_type == pabotbase.MessageType.ERROR_READY:
-                    self._debug("PABotBase probe: ERROR_READY received.")
-                    return True
-
-                ack_types = {
-                    pabotbase.MessageType.ACK_REQUEST,
-                    pabotbase.MessageType.ACK_REQUEST_I8,
-                    pabotbase.MessageType.ACK_REQUEST_I16,
-                    pabotbase.MessageType.ACK_REQUEST_I32,
-                    pabotbase.MessageType.ACK_REQUEST_DATA,
-                }
-                if response.msg_type in ack_types:
-                    if len(response.payload) >= 4:
-                        ack_seqnum = struct.unpack("<I", response.payload[:4])[0]
-                        self._debug(f"PABotBase probe: ack seqnum={ack_seqnum}.")
-                        if ack_seqnum == seqnum:
-                            return True
-                        self._debug("PABotBase probe: ack seqnum mismatch.")
-                        return False
-                    self._debug("PABotBase probe: ack without seqnum payload.")
-                    return True
+                ack_seqnum = struct.unpack("<I", response.payload[:4])[0]
+                self._debug(f"PABotBase probe: ack seqnum={ack_seqnum}.")
+                return True
 
             self._debug("PABotBase probe: no valid response.")
             return False
