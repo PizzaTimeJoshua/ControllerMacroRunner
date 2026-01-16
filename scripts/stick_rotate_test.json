@@ -1,22 +1,93 @@
 [
-  {"cmd": "comment", "text": "Rotate both sticks slowly for testing."},
-  {"cmd": "set", "var": "radius", "value": 0.8},
-  {"cmd": "set", "var": "step", "value": 0.08},
-  {"cmd": "set", "var": "wait_ms", "value": 50},
-  {"cmd": "set", "var": "offset", "value": "=math.pi/2"},
-  {"cmd": "set", "var": "turn", "value": 0},
-  {"cmd": "while", "left": "$turn", "op": "<", "right": 2},
-    {"cmd": "set", "var": "angle", "value": 0},
-    {"cmd": "set", "var": "end", "value": "=2*math.pi"},
-    {"cmd": "while", "left": "$angle", "op": "<", "right": "$end"},
-      {"cmd": "set_left_stick", "x": "=math.cos($angle) * $radius", "y": "=math.sin($angle) * $radius"},
-      {"cmd": "set_right_stick", "x": "=math.cos($angle + $offset) * $radius", "y": "=math.sin($angle + $offset) * $radius"},
-      {"cmd": "wait", "ms": "$wait_ms"},
-      {"cmd": "add", "var": "angle", "value": "$step"},
-    {"cmd": "end_while"},
-    {"cmd": "add", "var": "turn", "value": 1},
-  {"cmd": "end_while"},
-  {"cmd": "reset_left_stick"},
-  {"cmd": "reset_right_stick"},
-  {"cmd": "wait", "ms": 200}
+  {
+    "cmd": "comment",
+    "text": "Rotate both sticks slowly for testing."
+  },
+  {
+    "cmd": "set",
+    "var": "radius",
+    "value": 0.8
+  },
+  {
+    "cmd": "set",
+    "var": "step",
+    "value": 0.08
+  },
+  {
+    "cmd": "set",
+    "var": "wait_ms",
+    "value": 50
+  },
+  {
+    "cmd": "set",
+    "var": "offset",
+    "value": "=math.pi/2"
+  },
+  {
+    "cmd": "set",
+    "var": "turn",
+    "value": 0
+  },
+  {
+    "cmd": "while",
+    "left": "$turn",
+    "op": "<",
+    "right": 2
+  },
+  {
+    "cmd": "set",
+    "var": "angle",
+    "value": 0
+  },
+  {
+    "cmd": "set",
+    "var": "end",
+    "value": "=2*math.pi"
+  },
+  {
+    "cmd": "while",
+    "left": "$angle",
+    "op": "<",
+    "right": "$end"
+  },
+  {
+    "cmd": "set_left_stick",
+    "x": "=math.cos($angle) * $radius",
+    "y": "=math.sin($angle) * $radius"
+  },
+  {
+    "cmd": "set_right_stick",
+    "x": "=math.cos($angle + $offset) * $radius",
+    "y": "=math.sin($angle + $offset) * $radius"
+  },
+  {
+    "cmd": "wait",
+    "ms": "$wait_ms"
+  },
+  {
+    "cmd": "add",
+    "var": "angle",
+    "value": "$step"
+  },
+  {
+    "cmd": "end_while"
+  },
+  {
+    "cmd": "add",
+    "var": "turn",
+    "value": 1
+  },
+  {
+    "cmd": "end_while"
+  },
+  {
+    "cmd": "reset_left_stick"
+  },
+  {
+    "cmd": "reset_right_stick"
+  },
+  {
+    "cmd": "wait",
+    "ms": 200
+  }
 ]
