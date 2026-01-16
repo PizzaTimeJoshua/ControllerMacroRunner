@@ -17,7 +17,7 @@ class SettingsDialog(tk.Toplevel):
 
     def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
                  theme_mode: str = "auto", discord_settings: dict | None = None,
-                 on_save_callback=None):
+                 confirm_delete: bool = True, on_save_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.result = None
@@ -42,6 +42,7 @@ class SettingsDialog(tk.Toplevel):
         self.theme_var = tk.StringVar(
             value=self._theme_value_to_label.get(theme_mode, "Auto (System)")
         )
+        self.confirm_delete_var = tk.BooleanVar(value=bool(confirm_delete))
 
         self.title("Settings")
         self.transient(parent)
@@ -64,6 +65,7 @@ class SettingsDialog(tk.Toplevel):
         self._create_threeds_tab()
         self._create_discord_tab()
         self._create_appearance_tab()
+        self._create_editing_tab()
 
         # Bottom buttons
         btn_frame = ttk.Frame(main)
@@ -202,6 +204,22 @@ class SettingsDialog(tk.Toplevel):
             foreground="gray",
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
+    def _create_editing_tab(self):
+        """Create the editing settings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Editing")
+
+        ttk.Label(
+            tab,
+            text="Script editor confirmations:",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Checkbutton(
+            tab,
+            text="Confirm before deleting commands",
+            variable=self.confirm_delete_var,
+        ).grid(row=1, column=0, sticky="w")
+
     def _refresh_keybinds_tree(self):
         """Refresh the keybindings treeview."""
         self.keybinds_tree.delete(*self.keybinds_tree.get_children())
@@ -324,6 +342,7 @@ class SettingsDialog(tk.Toplevel):
                 "user_id": user_id,
             },
             "theme": theme_value,
+            "confirm_delete": bool(self.confirm_delete_var.get()),
         }
 
         # Call save callback if provided
@@ -369,7 +388,7 @@ class CommandEditorDialog(tk.Toplevel):
         ttk.Label(top, text="Command:").grid(row=0, column=0, sticky="w")
         self.cmd_combo = ttk.Combobox(
             top, textvariable=self.cmd_name_var, state="readonly",
-            values=self._ordered_command_names(), width=30
+            values=self._ordered_command_names(), width=30,height=100
         )
         self.cmd_combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         top.columnconfigure(1, weight=1)

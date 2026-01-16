@@ -127,6 +127,7 @@ DEFAULT_SETTINGS = {
     },
     "camera_ratio": "3:2 (GBA)",
     "theme": "auto",
+    "confirm_delete": True,
 }
 
 
@@ -156,6 +157,8 @@ def load_settings() -> dict:
         if isinstance(loaded.get("theme"), str):
             theme = normalize_theme_setting(loaded["theme"])
             result["theme"] = theme
+        if isinstance(loaded.get("confirm_delete"), bool):
+            result["confirm_delete"] = loaded["confirm_delete"]
 
         return result
     except Exception:

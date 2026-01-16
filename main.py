@@ -752,6 +752,7 @@ class App:
         self.script_text.bind("<Button-3>", self._on_script_right_click)
         self.script_text.bind("<Double-1>", self._on_script_double_click)
         self.script_text.bind("<Button-1>", self._on_script_click)
+        self.script_text.bind("<Delete>", self._on_script_delete_key)
 
         # Track selected line for editing
         self.selected_script_line = None
@@ -1127,7 +1128,8 @@ class App:
 
     def _build_context_menu(self):
         self.ctx = tk.Menu(self.root, tearoff=0)
-        self.ctx.add_command(label="Add", command=self.add_command)
+        self.ctx_add_menu = self._build_add_context_menu()
+        self.ctx.add_cascade(label="Add", menu=self.ctx_add_menu)
         self.ctx.add_command(label="Edit", command=self.edit_command)
         self.ctx.add_command(label="Copy", command=self.copy_command)
         self.ctx.add_command(label="Paste", command=self.paste_command)
@@ -1141,13 +1143,33 @@ class App:
         self.ctx.add_command(label="Save", command=self.save_script)
         self.ctx.add_command(label="Save As...", command=self.save_script_as)
 
+    def _build_add_context_menu(self):
+        add_menu = tk.Menu(self.ctx, tearoff=0)
+        group_menus = {}
+
+        for name, spec in self.engine.ordered_specs():
+            group = spec.group or "Other"
+            if group not in group_menus:
+                group_menus[group] = tk.Menu(add_menu, tearoff=0)
+                add_menu.add_cascade(label=group, menu=group_menus[group])
+
+            group_menus[group].add_command(
+                label=name,
+                command=lambda n=name: self._add_command_by_name(n)
+            )
+
+        self.ctx_add_group_menus = group_menus
+        return add_menu
+
     def _on_script_click(self, event):
         # Select line on click
+        self.script_text.focus_set()
         line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
         self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
 
     def _on_script_right_click(self, event):
         # Select line and show context menu
+        self.script_text.focus_set()
         line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
         self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
         try:
@@ -1160,6 +1182,10 @@ class App:
         line_num = int(self.script_text.index(f"@{event.x},{event.y}").split('.')[0])
         self._select_script_line(line_num - 1)  # -1 because Text widget is 1-indexed
         self.edit_command()
+
+    def _on_script_delete_key(self, event):
+        self.delete_command()
+        return "break"
 
     def _select_script_line(self, idx):
         """Select a script line by index."""
@@ -1931,6 +1957,7 @@ class App:
             self._settings["threeds"] = settings["threeds"]
             self._settings["discord"] = settings["discord"]
             self._settings["theme"] = theme_setting
+            self._settings["confirm_delete"] = settings.get("confirm_delete", True)
             if save_settings(self._settings):
                 self.set_status("Settings saved.")
             else:
@@ -1943,6 +1970,7 @@ class App:
             threeds_port=port,
             theme_mode=self._theme_setting,
             discord_settings=self._settings.get("discord", {}),
+            confirm_delete=self._settings.get("confirm_delete", True),
             on_save_callback=on_save
         )
         self.root.wait_window(dialog)
@@ -2366,6 +2394,15 @@ class App:
 
 
     def add_command(self):
+        self._open_add_command_dialog()
+
+    def _add_command_by_name(self, name):
+        if name not in self.engine.registry:
+            messagebox.showwarning("Unknown command", f"Command '{name}' not found.")
+            return
+        self._open_add_command_dialog(initial_cmd={"cmd": name})
+
+    def _open_add_command_dialog(self, initial_cmd=None):
         if self.engine.running:
             messagebox.showwarning("Running", "Stop the script before editing.")
             return
@@ -2375,7 +2412,7 @@ class App:
 
         dlg = CommandEditorDialog(
             self.root, self.engine.registry,
-            initial_cmd=None, title="Add Command",
+            initial_cmd=initial_cmd, title="Add Command",
             test_callback=self._dialog_test_callback,
             select_area_callback=self._open_region_selector,
             select_color_callback=self._open_color_picker,
@@ -2422,6 +2459,64 @@ class App:
         self._reindex_after_edit()
         self._select_script_line(idx)
 
+    def _confirm_delete_command(self):
+        if not self._settings.get("confirm_delete", True):
+            return True
+
+        result = {"ok": False}
+        dont_ask_var = tk.BooleanVar(value=False)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Delete")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        body = ttk.Frame(dlg, padding=12)
+        body.grid(row=0, column=0, sticky="nsew")
+        dlg.columnconfigure(0, weight=1)
+        dlg.rowconfigure(0, weight=1)
+
+        ttk.Label(body, text="Delete selected command?").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+        ttk.Checkbutton(
+            body,
+            text="Don't ask again",
+            variable=dont_ask_var
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        btn_row = ttk.Frame(body)
+        btn_row.grid(row=2, column=0, columnspan=2, sticky="e", pady=(12, 0))
+
+        def on_delete():
+            result["ok"] = True
+            dlg.destroy()
+
+        def on_cancel():
+            dlg.destroy()
+
+        ttk.Button(btn_row, text="Cancel", command=on_cancel).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_row, text="Delete", command=on_delete).pack(side="right")
+
+        dlg.bind("<Escape>", lambda e: on_cancel())
+        dlg.bind("<Return>", lambda e: on_delete())
+
+        dlg.update_idletasks()
+        x = self.root.winfo_rootx() + 120
+        y = self.root.winfo_rooty() + 120
+        dlg.geometry(f"+{x}+{y}")
+
+        self.root.wait_window(dlg)
+
+        if result["ok"] and dont_ask_var.get():
+            self._settings["confirm_delete"] = False
+            if save_settings(self._settings):
+                self.set_status("Delete confirmation disabled.")
+            else:
+                self.set_status("Delete confirmation disabled (could not save).")
+
+        return result["ok"]
+
     def delete_command(self):
         if self.engine.running:
             messagebox.showwarning("Running", "Stop the script before editing.")
@@ -2431,7 +2526,7 @@ class App:
         if idx is None:
             return
 
-        if not messagebox.askyesno("Delete", "Delete selected command?"):
+        if not self._confirm_delete_command():
             return
 
         del self.engine.commands[idx]
