@@ -552,6 +552,7 @@ class App:
             return
         if heading:
             self._write_log_line("DEBUG: ", heading)
+        is_main_thread = threading.current_thread() is threading.main_thread()
         self._write_log_line("DEBUG: ", f"thread={threading.current_thread().name}")
         self._write_log_line("DEBUG: ", f"script_path={self.script_path}")
         self._write_log_line("DEBUG: ", f"dirty={self.dirty}")
@@ -559,8 +560,13 @@ class App:
         self._write_log_line("DEBUG: ", f"engine_running={getattr(engine, 'running', False)}")
         self._write_log_line("DEBUG: ", f"engine_ip={getattr(engine, 'ip', None)}")
         self._write_log_line("DEBUG: ", f"command_count={len(getattr(engine, 'commands', []) or [])}")
-        backend_var = getattr(self, "backend_var", None)
-        backend_label = backend_var.get() if backend_var else None
+        backend_label = None
+        if is_main_thread:
+            backend_var = getattr(self, "backend_var", None)
+            try:
+                backend_label = backend_var.get() if backend_var else None
+            except tk.TclError:
+                backend_label = None
         self._write_log_line("DEBUG: ", f"backend={backend_label}")
         backend = getattr(self, "active_backend", None)
         backend_connected = bool(getattr(backend, "connected", False))
@@ -603,6 +609,20 @@ class App:
                     self._orig_threading_excepthook(args)
 
             threading.excepthook = _handle_thread_exception
+
+        def _handle_tk_exception(exc_type, exc_value, exc_traceback):
+            self._log_exception(exc_type, exc_value, exc_traceback, prefix="TK CALLBACK EXCEPTION")
+            try:
+                if self._orig_tk_exception:
+                    self._orig_tk_exception(exc_type, exc_value, exc_traceback)
+                else:
+                    messagebox.showerror("Error", str(exc_value), parent=self.root)
+            except Exception:
+                pass
+
+        if hasattr(self, "root"):
+            self._orig_tk_exception = getattr(self.root, "report_callback_exception", None)
+            self.root.report_callback_exception = _handle_tk_exception
 
     def _log_status(self, msg: str):
         if not msg:
