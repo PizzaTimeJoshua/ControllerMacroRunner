@@ -13,12 +13,12 @@ import sys
 import json
 import re
 import math
+import time
+import queue
 import threading
 import subprocess
 import tkinter as tk
 import copy
-import traceback
-from datetime import datetime
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import numpy as np
 from PIL import Image, ImageTk
@@ -40,7 +40,6 @@ from utils import (
     get_default_keybindings,
     normalize_theme_setting,
     resolve_theme_mode,
-    exe_dir_path,
 )
 from camera import (
     list_dshow_video_devices,
@@ -124,9 +123,9 @@ class App:
         self.root = root
         self.script_path = None
         self.dirty = False
-        self._log_lock = threading.Lock()
-        self._log_path = exe_dir_path("latest.log")
-        self._reset_status_log()
+        self._status_queue = queue.Queue()
+        self._status_poll_ms = 50
+        self._status_poll_id = None
 
         self.root.title("Controller Macro Runner")
         self.root.columnconfigure(0, weight=1)
@@ -139,8 +138,6 @@ class App:
 
         # --- Load settings from file
         self._settings = load_settings()
-        self._install_exception_logging()
-        self._log_debug_state("App started")
         self._theme_setting = normalize_theme_setting(self._settings.get("theme", "auto"))
         self._resolved_theme = None
         self._theme_colors = None
@@ -253,6 +250,7 @@ class App:
         self.engine.set_settings_getter(lambda: self._settings)
 
         self._build_ui()
+        self._schedule_status_drain()
         self.apply_theme_setting(self._theme_setting)
         self._build_context_menu()
         self.apply_video_ratio(persist=False)
@@ -524,115 +522,42 @@ class App:
             self._theme_poll_id = None
 
     # ---- status
-    def _reset_status_log(self):
-        try:
-            log_dir = os.path.dirname(self._log_path)
-            if log_dir:
-                os.makedirs(log_dir, exist_ok=True)
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                f.write("")
-        except Exception:
-            pass
-
-    def _write_log_line(self, label: str, msg: str):
-        if not msg:
+    def _schedule_status_drain(self):
+        if not self.root.winfo_exists():
             return
-        try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            line = f"[{timestamp}] {label}{msg}\n"
-            with self._log_lock:
-                with open(self._log_path, "a", encoding="utf-8") as f:
-                    f.write(line)
-        except Exception:
-            pass
-
-    def _log_debug_state(self, heading: str | None = None):
-        settings = getattr(self, "_settings", None)
-        if not settings or not settings.get("debug_logging", False):
-            return
-        if heading:
-            self._write_log_line("DEBUG: ", heading)
-        is_main_thread = threading.current_thread() is threading.main_thread()
-        self._write_log_line("DEBUG: ", f"thread={threading.current_thread().name}")
-        self._write_log_line("DEBUG: ", f"script_path={self.script_path}")
-        self._write_log_line("DEBUG: ", f"dirty={self.dirty}")
-        engine = getattr(self, "engine", None)
-        self._write_log_line("DEBUG: ", f"engine_running={getattr(engine, 'running', False)}")
-        self._write_log_line("DEBUG: ", f"engine_ip={getattr(engine, 'ip', None)}")
-        self._write_log_line("DEBUG: ", f"command_count={len(getattr(engine, 'commands', []) or [])}")
-        backend_label = None
-        if is_main_thread:
-            backend_var = getattr(self, "backend_var", None)
+        if self._status_poll_id is not None:
             try:
-                backend_label = backend_var.get() if backend_var else None
-            except tk.TclError:
-                backend_label = None
-        self._write_log_line("DEBUG: ", f"backend={backend_label}")
-        backend = getattr(self, "active_backend", None)
-        backend_connected = bool(getattr(backend, "connected", False))
-        self._write_log_line("DEBUG: ", f"backend_connected={backend_connected}")
-        self._write_log_line("DEBUG: ", f"camera_running={getattr(self, 'cam_running', False)}")
-        self._write_log_line("DEBUG: ", f"audio_running={getattr(self, 'audio_running', False)}")
-
-    def _log_exception(self, exc_type, exc_value, exc_traceback, prefix="EXCEPTION"):
-        settings = getattr(self, "_settings", None)
-        if not settings or not settings.get("debug_logging", False):
-            return
-        try:
-            lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
-            for line in lines:
-                self._write_log_line("DEBUG: ", f"{prefix}: {line.rstrip()}")
-        except Exception:
-            pass
-
-    def _install_exception_logging(self):
-        self._orig_excepthook = getattr(sys, "excepthook", None)
-
-        def _handle_exception(exc_type, exc_value, exc_traceback):
-            self._log_exception(exc_type, exc_value, exc_traceback)
-            if self._orig_excepthook:
-                self._orig_excepthook(exc_type, exc_value, exc_traceback)
-
-        sys.excepthook = _handle_exception
-
-        if hasattr(threading, "excepthook"):
-            self._orig_threading_excepthook = threading.excepthook
-
-            def _handle_thread_exception(args):
-                self._log_exception(
-                    args.exc_type,
-                    args.exc_value,
-                    args.exc_traceback,
-                    prefix="THREAD EXCEPTION"
-                )
-                if self._orig_threading_excepthook:
-                    self._orig_threading_excepthook(args)
-
-            threading.excepthook = _handle_thread_exception
-
-        def _handle_tk_exception(exc_type, exc_value, exc_traceback):
-            self._log_exception(exc_type, exc_value, exc_traceback, prefix="TK CALLBACK EXCEPTION")
-            try:
-                if self._orig_tk_exception:
-                    self._orig_tk_exception(exc_type, exc_value, exc_traceback)
-                else:
-                    messagebox.showerror("Error", str(exc_value), parent=self.root)
+                self.root.after_cancel(self._status_poll_id)
             except Exception:
                 pass
+        self._status_poll_id = self.root.after(self._status_poll_ms, self._drain_status_queue)
 
-        if hasattr(self, "root"):
-            self._orig_tk_exception = getattr(self.root, "report_callback_exception", None)
-            self.root.report_callback_exception = _handle_tk_exception
-
-    def _log_status(self, msg: str):
-        if not msg:
+    def _drain_status_queue(self):
+        if not self.root.winfo_exists():
             return
-        self._write_log_line("STATUS: ", msg)
-        self._log_debug_state()
+        last_msg = None
+        while True:
+            try:
+                msg = self._status_queue.get_nowait()
+            except queue.Empty:
+                break
+            if not msg:
+                continue
+            last_msg = msg
+        if last_msg is not None:
+            try:
+                self.status_var.set(last_msg)
+            except tk.TclError:
+                pass
+        self._status_poll_id = self.root.after(self._status_poll_ms, self._drain_status_queue)
 
     def set_status(self, msg):
-        self._log_status(msg)
-        self.root.after(0, lambda: self.status_var.set(msg))
+        if not msg:
+            return
+        try:
+            self._status_queue.put_nowait(msg)
+        except Exception:
+            pass
 
     # ---- engine tick (live vars)
     def on_engine_tick(self):
@@ -2088,7 +2013,6 @@ class App:
             self._settings["theme"] = theme_setting
             self._settings["custom_theme"] = settings.get("custom_theme", {})
             self._settings["confirm_delete"] = settings.get("confirm_delete", True)
-            self._settings["debug_logging"] = settings.get("debug_logging", False)
             if save_settings(self._settings):
                 self.set_status("Settings saved.")
             else:
@@ -2104,7 +2028,6 @@ class App:
             custom_theme=self._settings.get("custom_theme", {}),
             theme_colors=THEME_COLORS,
             confirm_delete=self._settings.get("confirm_delete", True),
-            debug_logging=self._settings.get("debug_logging", False),
             on_save_callback=on_save,
             on_apply_callback=on_apply
         )

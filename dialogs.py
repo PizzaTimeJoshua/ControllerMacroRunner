@@ -45,7 +45,7 @@ class SettingsDialog(tk.Toplevel):
     def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
                  theme_mode: str = "auto", discord_settings: dict | None = None,
                  custom_theme: dict | None = None, theme_colors: dict | None = None,
-                 confirm_delete: bool = True, debug_logging: bool = False,
+                 confirm_delete: bool = True,
                  on_save_callback=None, on_apply_callback=None):
         super().__init__(parent)
         self.parent = parent
@@ -80,7 +80,6 @@ class SettingsDialog(tk.Toplevel):
         self._custom_theme_last_valid = {}
         self._color_update_lock = False
         self.confirm_delete_var = tk.BooleanVar(value=bool(confirm_delete))
-        self.debug_logging_var = tk.BooleanVar(value=bool(debug_logging))
 
         self.title("Settings")
         self.transient(parent)
@@ -259,12 +258,6 @@ class SettingsDialog(tk.Toplevel):
             text="Confirm before deleting commands",
             variable=self.confirm_delete_var,
         ).grid(row=1, column=0, sticky="w")
-
-        ttk.Checkbutton(
-            tab,
-            text="Enable debug logging (extra details in latest.log)",
-            variable=self.debug_logging_var,
-        ).grid(row=2, column=0, sticky="w", pady=(8, 0))
 
     def _create_custom_theme_tab(self):
         """Create the custom theme settings tab."""
@@ -527,7 +520,6 @@ class SettingsDialog(tk.Toplevel):
             "theme": theme_settings["theme"],
             "custom_theme": theme_settings["custom_theme"],
             "confirm_delete": bool(self.confirm_delete_var.get()),
-            "debug_logging": bool(self.debug_logging_var.get()),
         }
 
         # Call save callback if provided
