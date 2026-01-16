@@ -40,11 +40,6 @@ KEYBIND_TARGETS = ALL_BUTTONS + LEFT_STICK_BINDINGS + RIGHT_STICK_BINDINGS
 
 USB_TX_HEADER_BYTES = {0x43, 0x54}
 PABOTBASE_HINTS = ("pabot", "pokemon", "teensy", "pjrc")
-PABOTBASE_MSG_TYPES = {
-    value
-    for name, value in pabotbase.MessageType.__dict__.items()
-    if not name.startswith("_") and isinstance(value, int)
-}
 
 def buttons_to_bytes(buttons):
     high, low = 0, 0
@@ -84,27 +79,6 @@ def _build_safe_seqnum_reset():
         if not _contains_usbtx_header(encoded):
             return seqnum, encoded
     return None, None
-
-
-def _looks_like_pabotbase_bytes(raw_bytes):
-    if not raw_bytes:
-        return False
-    data = raw_bytes
-    n = len(data)
-    for i in range(n - 1):
-        length_inverted = data[i]
-        expected_length = (~length_inverted) & 0xFF
-        if expected_length < pabotbase.PROTOCOL_OVERHEAD:
-            continue
-        if expected_length > pabotbase.MAX_PACKET_SIZE:
-            continue
-        if i + expected_length > n:
-            continue
-        msg_type = data[i + 1]
-        if msg_type not in PABOTBASE_MSG_TYPES:
-            continue
-        return True
-    return False
 
 
 class UsbTxSerialBackend:
@@ -682,7 +656,7 @@ class SerialController:
 
         info = self._get_port_info(port)
         if info is None:
-            return False, "passive probe (no port info)"
+            return True, "safe probe (no port info)"
 
         haystack = " ".join(
             str(x).lower()
@@ -696,7 +670,7 @@ class SerialController:
         if any(hint in haystack for hint in PABOTBASE_HINTS):
             return True, "hint match"
 
-        return False, "passive probe (no hint)"
+        return True, "safe probe (default)"
 
     def _read_pabotbase_response(self, ser, timeout_s, max_log_bytes=64, accept_fn=None):
         start = time.time()
@@ -727,6 +701,7 @@ class SerialController:
                         break
 
             time.sleep(0.001)
+
         return None, bytes(raw_log)
 
     @property
@@ -737,7 +712,12 @@ class SerialController:
     def supports_timed_press(self):
         return bool(getattr(self.backend, "supports_timed_press", False))
 
-    def _probe_pabotbase(self, port, timeout_s=0.25, allow_write=True):
+    def _probe_pabotbase(self, port, timeout_s=0.25, allow_write=False):
+        seqnum, message = _build_safe_seqnum_reset()
+        if message is None:
+            self._debug("PABotBase probe: failed to build safe SEQNUM_RESET.")
+            return False
+
         ser = None
         try:
             self._debug(f"PABotBase probe: opening {port} @ {pabotbase.BAUD_RATE}.")
@@ -748,6 +728,7 @@ class SerialController:
             except Exception:
                 pass
 
+            self._debug(f"PABotBase probe: using seqnum={seqnum}, packet_len={len(message)}.")
             ack_types = {
                 pabotbase.MessageType.ACK_REQUEST,
                 pabotbase.MessageType.ACK_REQUEST_I8,
@@ -763,68 +744,6 @@ class SerialController:
                     return len(resp.payload) >= 4
                 return False
 
-            if allow_write:
-                passive_timeout = min(0.1, timeout_s)
-                if passive_timeout > 0:
-                    self._debug(
-                        f"PABotBase probe: passive listen ({passive_timeout:.2f}s) before active."
-                    )
-                    response, raw_log = self._read_pabotbase_response(
-                        ser,
-                        passive_timeout,
-                        accept_fn=accept_passive,
-                    )
-                    if response is not None:
-                        self._debug(
-                            f"PABotBase probe: response type=0x{response.msg_type:02X} "
-                            f"payload_len={len(response.payload)}."
-                        )
-                        return True
-                    if _looks_like_pabotbase_bytes(raw_log):
-                        self._debug("PABotBase probe: passive listen saw plausible bytes.")
-                        return True
-                    if raw_log:
-                        hex_dump = " ".join(f"{b:02X}" for b in raw_log)
-                        self._debug(
-                            f"PABotBase probe: passive listen saw bytes, raw={hex_dump}"
-                        )
-                    try:
-                        ser.reset_input_buffer()
-                    except Exception:
-                        pass
-            else:
-                self._debug("PABotBase probe: passive listen only (no writes).")
-                response, raw_log = self._read_pabotbase_response(
-                    ser,
-                    timeout_s,
-                    accept_fn=accept_passive,
-                )
-                if response is None:
-                    if raw_log:
-                        if _looks_like_pabotbase_bytes(raw_log):
-                            self._debug(
-                                "PABotBase probe: passive listen saw plausible bytes."
-                            )
-                            return True
-                        hex_dump = " ".join(f"{b:02X}" for b in raw_log)
-                        self._debug(f"PABotBase probe: no valid response, raw={hex_dump}")
-                    else:
-                        self._debug("PABotBase probe: no response bytes.")
-                    return False
-
-                self._debug(
-                    f"PABotBase probe: response type=0x{response.msg_type:02X} "
-                    f"payload_len={len(response.payload)}."
-                )
-                return True
-
-            seqnum, message = _build_safe_seqnum_reset()
-            if message is None:
-                self._debug("PABotBase probe: failed to build safe SEQNUM_RESET.")
-                return False
-
-            self._debug(f"PABotBase probe: using seqnum={seqnum}, packet_len={len(message)}.")
-
             def accept_active(resp):
                 if resp.msg_type not in ack_types:
                     return False
@@ -836,6 +755,28 @@ class SerialController:
                     return False
                 return True
 
+            if not allow_write:
+                self._debug("PABotBase probe: passive listen only (no writes).")
+                response, raw_log = self._read_pabotbase_response(
+                    ser,
+                    timeout_s,
+                    accept_fn=accept_passive,
+                )
+                if response is None:
+                    if raw_log:
+                        hex_dump = " ".join(f"{b:02X}" for b in raw_log)
+                        self._debug(f"PABotBase probe: response, raw={hex_dump}")
+                        return True
+                    else:
+                        self._debug("PABotBase probe: no response bytes.")
+                    return False
+
+                self._debug(
+                    f"PABotBase probe: response type=0x{response.msg_type:02X} "
+                    f"payload_len={len(response.payload)}."
+                )
+                return True
+            
             for attempt in range(2):
                 if attempt:
                     time.sleep(0.1)
@@ -884,7 +825,7 @@ class SerialController:
         self._debug(f"Serial connect: probing {port}.")
         if port_info:
             self._debug(f"Serial connect: port info: {self._format_port_info(port_info)}")
-        allow_write, reason = self._should_probe_pabotbase(port)
+        allow_write, reason = False, "default to no-write probe"
         if not allow_write:
             self._debug(f"Serial connect: PABotBase probe write disabled ({reason}).")
         if self._probe_pabotbase(port, allow_write=allow_write):
