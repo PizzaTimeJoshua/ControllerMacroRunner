@@ -849,6 +849,19 @@ class App:
             ks = "enter"
         return ks
 
+    def _resolve_shift_release_alias(self, ks):
+        if ks not in ("shift_l", "shift_r"):
+            return ks, self.kb_bindings.get(ks)
+        if ks in self.kb_down:
+            return ks, self.kb_bindings.get(ks)
+        alt = "shift_r" if ks == "shift_l" else "shift_l"
+        if alt in self.kb_down:
+            return alt, self.kb_bindings.get(alt)
+        alt_target = self.kb_bindings.get(alt)
+        if alt_target and alt_target in self.kb_buttons_held:
+            return alt, alt_target
+        return ks, self.kb_bindings.get(ks)
+
     def _stick_dirs_to_xy(self, dirs, prefix):
         x = 0.0
         y = 0.0
@@ -1003,15 +1016,15 @@ class App:
         self._disable_camera_keyboard_focus()
 
     def _on_key_press(self, event):
-        if not self._manual_control_allowed():
+        allowed = self._manual_control_allowed()
+        ks = self._normalize_keysym(event)
+        # Check if this key is mapped to a controller control
+        target = self.kb_bindings.get(ks) if ks else None
+        if not allowed:
             return
 
-        ks = self._normalize_keysym(event)
         if not ks:
             return
-
-        # Check if this key is mapped to a controller control
-        target = self.kb_bindings.get(ks)
 
         # Prevent repeat spamming (Tk sends repeats while held)
         if ks in self.kb_down:
@@ -1043,15 +1056,17 @@ class App:
 
 
     def _on_key_release(self, event):
-        if not self._manual_control_allowed():
+        allowed = self._manual_control_allowed()
+        ks = self._normalize_keysym(event)
+        if ks:
+            ks, target = self._resolve_shift_release_alias(ks)
+        else:
+            target = None
+        if not allowed:
             return
 
-        ks = self._normalize_keysym(event)
         if not ks:
             return
-
-        # Check if this key is mapped to a controller control
-        target = self.kb_bindings.get(ks)
 
         if ks in self.kb_down:
             self.kb_down.remove(ks)
