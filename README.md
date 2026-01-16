@@ -924,7 +924,7 @@ Use PyInstaller to create a standalone executable:
 ```bat
 python -m pip install pyinstaller
 
-pythoh -m PyInstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
+python -m PyInstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
   --add-data "scripts;scripts" ^
   --add-data "py_scripts;py_scripts" ^
   main.py
