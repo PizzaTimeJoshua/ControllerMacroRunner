@@ -154,6 +154,7 @@ DEFAULT_SETTINGS = {
         "selected_bg": "#1f2b24",
     },
     "confirm_delete": True,
+    "debug_logging": False,
 }
 
 
@@ -187,6 +188,8 @@ def load_settings() -> dict:
             result["custom_theme"] = loaded["custom_theme"]
         if isinstance(loaded.get("confirm_delete"), bool):
             result["confirm_delete"] = loaded["confirm_delete"]
+        if isinstance(loaded.get("debug_logging"), bool):
+            result["debug_logging"] = loaded["debug_logging"]
 
         return result
     except Exception:

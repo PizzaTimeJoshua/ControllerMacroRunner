@@ -31,13 +31,12 @@ A Windows desktop application for **high-precision gaming automation** with sub-
 - **Camera Integration** - DirectShow camera feed with pixel sampling for vision-based automation
 - **Multiple Output Backends** - USB serial transmitter or Nintendo 3DS Input Redirection
 - **Extensible** - Custom Python tools and command system
+- **Custom Themes** - Create and preview a personalized color theme with live apply
 
 ### Camera Features
 
 - Live video preview from DirectShow cameras via FFmpeg
 - Mouse hover shows pixel coordinates (x,y)
-- Click to copy coordinates to clipboard
-- Shift+Click copies coordinates in JSON format: `{"x":123,"y":45}`
 - Double-click to pop out camera to a separate window
 - Configurable aspect ratios (GBA, DS, 3DS, Standard)
 - Region selector for OCR areas
@@ -214,14 +213,20 @@ py main.py
 - **Variables Panel** - Shows current variable values during execution
 - **Insert/Edit/Delete** - Modify script commands
 - **Up/Down** - Reorder commands
-- **Right-click** - Context menu with all options
+- **Right-click** - Context menu with nested Add > Category > Command submenu
+
+### Appearance and Themes
+
+- **Theme Mode** - Switch between Auto, Light, Dark, or Custom
+- **Custom Theme Editor** - Adjust per-color swatches with live previews and Apply
+- **Save vs Apply** - Apply updates without closing Settings, save to persist
 
 ### Keyboard Shortcuts
 
 - **Double-click** on video: Pop out camera window
-- **Click** on video: Copy coordinates to clipboard
-- **Shift+Click** on video: Copy coordinates as JSON
+- **Click** on video: Enable keyboard control focus
 - **Double-click** on command: Edit command
+- **Delete** on command: Remove selected command
 
 ---
 
