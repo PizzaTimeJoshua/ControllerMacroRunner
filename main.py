@@ -126,6 +126,12 @@ class App:
         self._status_queue = queue.Queue()
         self._status_poll_ms = 50
         self._status_poll_id = None
+        self._key_debug = os.environ.get("CMR_KEY_DEBUG", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
 
         self.root.title("Controller Macro Runner")
         self.root.columnconfigure(0, weight=1)
@@ -845,22 +851,79 @@ class App:
         if not ks:
             return None
         ks = ks.lower()
+        if ks in ("shift", "shift_l", "shift_r"):
+            ks = self._normalize_shift_keysym(ks, event)
         if ks == "return":
             ks = "enter"
         return ks
 
-    def _resolve_shift_release_alias(self, ks):
-        if ks not in ("shift_l", "shift_r"):
-            return ks, self.kb_bindings.get(ks)
+    def _debug_key_event(self, label, event, normalized=None):
+        if not self._key_debug:
+            return
+        try:
+            keysym = getattr(event, "keysym", None)
+            keycode = getattr(event, "keycode", None)
+            state = getattr(event, "state", None)
+            char = getattr(event, "char", None)
+            print(
+                "[KEYDBG] "
+                f"{label} keysym={keysym} keycode={keycode} state={state} "
+                f"char={char!r} normalized={normalized} "
+                f"kb_down={sorted(self.kb_down)} held={sorted(self.kb_buttons_held)}"
+            )
+        except Exception:
+            pass
+
+    def _normalize_shift_keysym(self, ks, event):
+        keycode = getattr(event, "keycode", None)
+        if keycode in (160, 50):  # Windows VK_LSHIFT / X11
+            return "shift_l"
+        if keycode in (161, 62):  # Windows VK_RSHIFT / X11
+            return "shift_r"
+        if ks == "shift":
+            if "shift_l" in self.kb_down and "shift_r" not in self.kb_down:
+                return "shift_l"
+            if "shift_r" in self.kb_down and "shift_l" not in self.kb_down:
+                return "shift_r"
+            if "shift_r" in self.kb_bindings and "shift_l" not in self.kb_bindings:
+                return "shift_r"
+            if "shift_l" in self.kb_bindings and "shift_r" not in self.kb_bindings:
+                return "shift_l"
+        return ks
+
+    def _release_keyboard_binding(self, ks):
+        if ks.startswith("shift"):
+            self._debug_key_event("release_binding_start", None, ks)
+        target = self.kb_bindings.get(ks)
+
         if ks in self.kb_down:
-            return ks, self.kb_bindings.get(ks)
-        alt = "shift_r" if ks == "shift_l" else "shift_l"
-        if alt in self.kb_down:
-            return alt, self.kb_bindings.get(alt)
-        alt_target = self.kb_bindings.get(alt)
-        if alt_target and alt_target in self.kb_buttons_held:
-            return alt, alt_target
-        return ks, self.kb_bindings.get(ks)
+            self.kb_down.remove(ks)
+
+        if not target:
+            return False
+
+        if target in SerialController.LEFT_STICK_BINDINGS:
+            if target in self.kb_left_stick_dirs:
+                self.kb_left_stick_dirs.remove(target)
+                self._update_keyboard_sticks()
+            return True
+
+        if target in SerialController.RIGHT_STICK_BINDINGS:
+            if target in self.kb_right_stick_dirs:
+                self.kb_right_stick_dirs.remove(target)
+                self._update_keyboard_sticks()
+            return True
+
+        if target in self.kb_buttons_held:
+            self.kb_buttons_held.remove(target)
+
+        self._select_active_backend()
+        if self.active_backend and getattr(self.active_backend, "connected", False):
+            self.active_backend.set_buttons(sorted(self.kb_buttons_held))
+
+        if ks.startswith("shift"):
+            self._debug_key_event("release_binding_done", None, ks)
+        return True
 
     def _stick_dirs_to_xy(self, dirs, prefix):
         x = 0.0
@@ -1016,21 +1079,25 @@ class App:
         self._disable_camera_keyboard_focus()
 
     def _on_key_press(self, event):
-        allowed = self._manual_control_allowed()
-        ks = self._normalize_keysym(event)
-        # Check if this key is mapped to a controller control
-        target = self.kb_bindings.get(ks) if ks else None
-        if not allowed:
+        if not self._manual_control_allowed():
             return
 
+        ks = self._normalize_keysym(event)
         if not ks:
             return
 
+        # Check if this key is mapped to a controller control
+        target = self.kb_bindings.get(ks)
+
         # Prevent repeat spamming (Tk sends repeats while held)
         if ks in self.kb_down:
+            if self._key_debug and ("shift" in (event.keysym or "").lower() or ks.startswith("shift")):
+                self._debug_key_event("repeat", event, ks)
             # Return "break" to prevent key from triggering GUI buttons
             return "break" if target else None
         self.kb_down.add(ks)
+        if self._key_debug and ("shift" in (event.keysym or "").lower() or ks.startswith("shift")):
+            self._debug_key_event("press", event, ks)
 
         if not target:
             return
@@ -1056,45 +1123,25 @@ class App:
 
 
     def _on_key_release(self, event):
-        allowed = self._manual_control_allowed()
-        ks = self._normalize_keysym(event)
-        if ks:
-            ks, target = self._resolve_shift_release_alias(ks)
-        else:
-            target = None
-        if not allowed:
+        if not self._manual_control_allowed():
             return
 
+        ks = self._normalize_keysym(event)
         if not ks:
             return
-
-        if ks in self.kb_down:
-            self.kb_down.remove(ks)
-
-        if not target:
+        if self._key_debug and ("shift" in (event.keysym or "").lower() or ks.startswith("shift")):
+            self._debug_key_event("release", event, ks)
+        if ks == "shift":
+            released = False
+            for shift_key in ("shift_l", "shift_r"):
+                if shift_key in self.kb_down:
+                    released = self._release_keyboard_binding(shift_key) or released
+            if released:
+                return "break"
             return
 
-        if target in SerialController.LEFT_STICK_BINDINGS:
-            if target in self.kb_left_stick_dirs:
-                self.kb_left_stick_dirs.remove(target)
-                self._update_keyboard_sticks()
+        if self._release_keyboard_binding(ks):
             return "break"
-
-        if target in SerialController.RIGHT_STICK_BINDINGS:
-            if target in self.kb_right_stick_dirs:
-                self.kb_right_stick_dirs.remove(target)
-                self._update_keyboard_sticks()
-            return "break"
-
-        if target in self.kb_buttons_held:
-            self.kb_buttons_held.remove(target)
-
-        self._select_active_backend()
-        if self.active_backend and getattr(self.active_backend, "connected", False):
-            self.active_backend.set_buttons(sorted(self.kb_buttons_held))
-
-        # Return "break" to prevent the key event from propagating to GUI widgets
-        return "break"
 
 
 
