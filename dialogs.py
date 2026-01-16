@@ -5,23 +5,52 @@ SettingsDialog: Keybindings and 3DS Input Redirection configuration.
 CommandEditorDialog: Schema-driven editor for script commands.
 """
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, colorchooser
 import json
 
 import SerialController
 from utils import list_python_files, get_default_keybindings
 
 
+THEME_KEY_LABELS = {
+    "bg": "Background",
+    "panel": "Panel",
+    "text": "Text",
+    "muted": "Muted Text",
+    "border": "Border",
+    "accent": "Accent",
+    "entry_bg": "Entry Background",
+    "button_bg": "Button Background",
+    "button_fg": "Button Text",
+    "select_bg": "Selection Background",
+    "select_fg": "Selection Text",
+    "tree_bg": "Tree Background",
+    "tree_fg": "Tree Text",
+    "text_bg": "Script Background",
+    "text_fg": "Script Text",
+    "insert_fg": "Cursor",
+    "text_sel_bg": "Script Selection Background",
+    "text_sel_fg": "Script Selection Text",
+    "pane_bg": "Pane Background",
+    "ip_bg": "IP Highlight",
+    "comment_fg": "Comment Text",
+    "variable_fg": "Variable Text",
+    "math_fg": "Math Text",
+    "selected_bg": "Selected Line",
+}
+
 class SettingsDialog(tk.Toplevel):
     """Dialog for editing application settings including keybinds, 3DS IP, and theme."""
 
     def __init__(self, parent, keybindings: dict, threeds_ip: str, threeds_port: int,
                  theme_mode: str = "auto", discord_settings: dict | None = None,
-                 confirm_delete: bool = True, on_save_callback=None):
+                 custom_theme: dict | None = None, theme_colors: dict | None = None,
+                 confirm_delete: bool = True, on_save_callback=None, on_apply_callback=None):
         super().__init__(parent)
         self.parent = parent
         self.result = None
         self.on_save_callback = on_save_callback
+        self.on_apply_callback = on_apply_callback
 
         # Store initial values
         self.keybindings = keybindings.copy()
@@ -37,11 +66,18 @@ class SettingsDialog(tk.Toplevel):
             "Auto (System)": "auto",
             "Dark": "dark",
             "Light": "light",
+            "Custom": "custom",
         }
         self._theme_value_to_label = {v: k for k, v in self._theme_label_to_value.items()}
         self.theme_var = tk.StringVar(
             value=self._theme_value_to_label.get(theme_mode, "Auto (System)")
         )
+        self.theme_colors = theme_colors or {}
+        self.custom_theme = (custom_theme or {}).copy()
+        self._custom_theme_vars = {}
+        self._custom_theme_previews = {}
+        self._custom_theme_last_valid = {}
+        self._color_update_lock = False
         self.confirm_delete_var = tk.BooleanVar(value=bool(confirm_delete))
 
         self.title("Settings")
@@ -66,11 +102,13 @@ class SettingsDialog(tk.Toplevel):
         self._create_discord_tab()
         self._create_appearance_tab()
         self._create_editing_tab()
+        self._create_custom_theme_tab()
 
         # Bottom buttons
         btn_frame = ttk.Frame(main)
         btn_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         ttk.Button(btn_frame, text="Cancel", command=self._cancel).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text="Apply", command=self._apply).pack(side="right", padx=(6, 0))
         ttk.Button(btn_frame, text="Save", command=self._save).pack(side="right")
 
         # Position dialog
@@ -220,6 +258,144 @@ class SettingsDialog(tk.Toplevel):
             variable=self.confirm_delete_var,
         ).grid(row=1, column=0, sticky="w")
 
+    def _create_custom_theme_tab(self):
+        """Create the custom theme settings tab."""
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Custom Theme")
+
+        ttk.Label(
+            tab,
+            text="Customize colors used when Theme Mode is Custom.",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            tab,
+            text="Use hex values like #1a2b3c.",
+            foreground="gray",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
+
+        container = ttk.Frame(tab)
+        container.grid(row=2, column=0, sticky="nsew")
+        tab.rowconfigure(2, weight=1)
+        tab.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        ttk.Label(inner, text="Color").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(inner, text="Value").grid(row=0, column=1, sticky="w", pady=(0, 6))
+        ttk.Label(inner, text="Preview").grid(row=0, column=3, sticky="w", pady=(0, 6))
+
+        self._custom_theme_keys = self._get_custom_theme_keys()
+        row = 1
+        for key in self._custom_theme_keys:
+            label = THEME_KEY_LABELS.get(key, key)
+            value = self._get_custom_theme_value(key)
+
+            ttk.Label(inner, text=label).grid(row=row, column=0, sticky="w", pady=2)
+
+            var = tk.StringVar(value=value)
+            entry = ttk.Entry(inner, textvariable=var, width=12)
+            entry.grid(row=row, column=1, sticky="w", pady=2)
+
+            ttk.Button(
+                inner,
+                text="Pick",
+                command=lambda k=key: self._pick_custom_color(k),
+            ).grid(row=row, column=2, sticky="w", padx=(6, 0))
+
+            preview = tk.Label(inner, text=" ", width=2, relief="solid", borderwidth=1)
+            preview.grid(row=row, column=3, sticky="w", padx=(6, 0))
+
+            self._custom_theme_vars[key] = var
+            self._custom_theme_previews[key] = preview
+            self._custom_theme_last_valid[key] = value
+            self._update_custom_color_preview(key, value)
+
+            var.trace_add("write", lambda *_args, k=key: self._on_custom_color_change(k))
+            row += 1
+
+    def _get_custom_theme_keys(self):
+        palette = self.theme_colors.get("dark") or self.theme_colors.get("light") or self.custom_theme
+        return list(palette.keys()) if palette else []
+
+    def _get_custom_theme_value(self, key: str) -> str:
+        fallback = (self.theme_colors.get("dark") or {}).get(key, "#000000")
+        return self.custom_theme.get(key, fallback)
+
+    def _is_valid_hex_color(self, value: str) -> bool:
+        if not isinstance(value, str):
+            return False
+        if len(value) != 7 or not value.startswith("#"):
+            return False
+        return all(ch in "0123456789abcdefABCDEF" for ch in value[1:])
+
+    def _on_custom_color_change(self, key: str):
+        if self._color_update_lock:
+            return
+        var = self._custom_theme_vars.get(key)
+        if not var:
+            return
+        value = var.get().strip()
+        if value and not value.startswith("#"):
+            self._color_update_lock = True
+            var.set(f"#{value}")
+            self._color_update_lock = False
+            value = var.get().strip()
+        if self._is_valid_hex_color(value):
+            self._custom_theme_last_valid[key] = value
+            self._update_custom_color_preview(key, value)
+
+    def _update_custom_color_preview(self, key: str, value: str):
+        preview = self._custom_theme_previews.get(key)
+        if preview and self._is_valid_hex_color(value):
+            preview.configure(bg=value)
+
+    def _pick_custom_color(self, key: str):
+        current = self._custom_theme_vars.get(key).get().strip()
+        if not self._is_valid_hex_color(current):
+            current = self._custom_theme_last_valid.get(key, "#000000")
+        chosen = colorchooser.askcolor(color=current, parent=self)
+        if chosen and chosen[1]:
+            self._custom_theme_vars[key].set(chosen[1])
+
+    def _collect_custom_theme(self) -> dict:
+        result = {}
+        for key in getattr(self, "_custom_theme_keys", []):
+            value = self._custom_theme_vars.get(key).get().strip()
+            if not self._is_valid_hex_color(value):
+                value = self._custom_theme_last_valid.get(key) or self._get_custom_theme_value(key)
+            result[key] = value
+        return result
+
+    def _build_theme_settings(self) -> dict:
+        theme_label = self.theme_var.get()
+        theme_value = self._theme_label_to_value.get(theme_label, "auto")
+        return {
+            "theme": theme_value,
+            "custom_theme": self._collect_custom_theme(),
+        }
+
+    def _apply(self):
+        if self.on_apply_callback:
+            self.on_apply_callback(self._build_theme_settings())
+
     def _refresh_keybinds_tree(self):
         """Refresh the keybindings treeview."""
         self.keybinds_tree.delete(*self.keybinds_tree.get_children())
@@ -315,8 +491,7 @@ class SettingsDialog(tk.Toplevel):
             return
 
         # Build result
-        theme_label = self.theme_var.get()
-        theme_value = self._theme_label_to_value.get(theme_label, "auto")
+        theme_settings = self._build_theme_settings()
 
         webhook_url = (self.discord_webhook_var.get() or "").strip()
         user_id_raw = (self.discord_user_id_var.get() or "").strip()
@@ -341,7 +516,8 @@ class SettingsDialog(tk.Toplevel):
                 "webhook_url": webhook_url,
                 "user_id": user_id,
             },
-            "theme": theme_value,
+            "theme": theme_settings["theme"],
+            "custom_theme": theme_settings["custom_theme"],
             "confirm_delete": bool(self.confirm_delete_var.get()),
         }
 

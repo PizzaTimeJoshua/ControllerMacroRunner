@@ -127,6 +127,32 @@ DEFAULT_SETTINGS = {
     },
     "camera_ratio": "3:2 (GBA)",
     "theme": "auto",
+    "custom_theme": {
+        "bg": "#0f1612",
+        "panel": "#16201a",
+        "text": "#d9e2dc",
+        "muted": "#9fb0a4",
+        "border": "#223128",
+        "accent": "#7bd88f",
+        "entry_bg": "#1b2620",
+        "button_bg": "#1f2c25",
+        "button_fg": "#d9e2dc",
+        "select_bg": "#2a3a31",
+        "select_fg": "#f5faf7",
+        "tree_bg": "#141e18",
+        "tree_fg": "#d9e2dc",
+        "text_bg": "#0f1713",
+        "text_fg": "#d9e2dc",
+        "insert_fg": "#f5faf7",
+        "text_sel_bg": "#2a3a31",
+        "text_sel_fg": "#f5faf7",
+        "pane_bg": "#0c120f",
+        "ip_bg": "#27362e",
+        "comment_fg": "#7bd88f",
+        "variable_fg": "#8cc9a4",
+        "math_fg": "#f2c374",
+        "selected_bg": "#1f2b24",
+    },
     "confirm_delete": True,
 }
 
@@ -157,6 +183,8 @@ def load_settings() -> dict:
         if isinstance(loaded.get("theme"), str):
             theme = normalize_theme_setting(loaded["theme"])
             result["theme"] = theme
+        if isinstance(loaded.get("custom_theme"), dict):
+            result["custom_theme"] = loaded["custom_theme"]
         if isinstance(loaded.get("confirm_delete"), bool):
             result["confirm_delete"] = loaded["confirm_delete"]
 
@@ -186,7 +214,7 @@ def get_default_keybindings() -> dict:
 def normalize_theme_setting(value: str) -> str:
     """Normalize theme setting to 'auto', 'dark', or 'light'."""
     value = (value or "").strip().lower()
-    if value in ("auto", "dark", "light"):
+    if value in ("auto", "dark", "light", "custom"):
         return value
     return "auto"
 
@@ -210,4 +238,6 @@ def resolve_theme_mode(setting: str) -> str:
     setting = normalize_theme_setting(setting)
     if setting == "auto":
         return get_system_theme()
+    if setting == "custom":
+        return "custom"
     return setting

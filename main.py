@@ -84,30 +84,30 @@ THEME_COLORS = {
         "selected_bg": "#e0e0e0",
     },
     "dark": {
-        "bg": "#1e1f22",
-        "panel": "#25272b",
-        "text": "#e6e6e6",
-        "muted": "#a0a5ad",
-        "border": "#3a3f44",
-        "accent": "#4f8cff",
-        "entry_bg": "#2a2d33",
-        "button_bg": "#2f3338",
-        "button_fg": "#e6e6e6",
-        "select_bg": "#2e3f59",
-        "select_fg": "#ffffff",
-        "tree_bg": "#1f2227",
-        "tree_fg": "#e6e6e6",
-        "text_bg": "#1c1f24",
-        "text_fg": "#e6e6e6",
-        "insert_fg": "#ffffff",
-        "text_sel_bg": "#2e3f59",
-        "text_sel_fg": "#ffffff",
-        "pane_bg": "#1b1d21",
-        "ip_bg": "#2f3b52",
-        "comment_fg": "#7ee787",
-        "variable_fg": "#7ab7ff",
-        "math_fg": "#f2c94c",
-        "selected_bg": "#2c313a",
+        "bg": "#171c22",
+        "panel": "#1f252d",
+        "text": "#d8dde6",
+        "muted": "#9aa3b0",
+        "border": "#2d3541",
+        "accent": "#6fa8ff",
+        "entry_bg": "#232a33",
+        "button_bg": "#27303a",
+        "button_fg": "#d8dde6",
+        "select_bg": "#2f3b4a",
+        "select_fg": "#f5f7fa",
+        "tree_bg": "#1a2028",
+        "tree_fg": "#d8dde6",
+        "text_bg": "#161c23",
+        "text_fg": "#d8dde6",
+        "insert_fg": "#f5f7fa",
+        "text_sel_bg": "#2f3b4a",
+        "text_sel_fg": "#f5f7fa",
+        "pane_bg": "#14181e",
+        "ip_bg": "#2a3646",
+        "comment_fg": "#7bd88f",
+        "variable_fg": "#7fb2ff",
+        "math_fg": "#f2c374",
+        "selected_bg": "#24303d",
     },
 }
 
@@ -294,10 +294,14 @@ class App:
         self._theme_poll_id = self.root.after(2000, self._poll_system_theme)
 
     def _apply_theme(self, mode: str):
-        mode = "dark" if mode == "dark" else "light"
-        if mode == self._resolved_theme:
+        if mode not in ("dark", "light", "custom"):
+            mode = "light"
+        if mode == "custom":
+            colors = self._get_custom_theme_colors()
+        else:
+            colors = THEME_COLORS[mode]
+        if mode == self._resolved_theme and colors == self._theme_colors:
             return
-        colors = THEME_COLORS[mode]
         outline = colors["border"]
         self._resolved_theme = mode
         self._theme_colors = colors
@@ -408,6 +412,7 @@ class App:
         self.root.option_add("*Listbox.foreground", colors["tree_fg"])
         self.root.option_add("*Listbox.selectBackground", colors["select_bg"])
         self.root.option_add("*Listbox.selectForeground", colors["select_fg"])
+        self._update_combobox_listboxes(colors)
         self.style.configure(
             "Treeview",
             background=colors["tree_bg"],
@@ -455,6 +460,36 @@ class App:
             self.right_split.configure(bg=colors["pane_bg"])
         if hasattr(self, "script_text"):
             self._apply_script_text_theme(colors)
+
+    def _update_combobox_listboxes(self, colors: dict):
+        def _walk(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from _walk(child)
+
+        for widget in _walk(self.root):
+            if isinstance(widget, ttk.Combobox):
+                try:
+                    popdown = widget.tk.call("ttk::combobox::PopdownWindow", str(widget))
+                    listbox = f"{popdown}.f.l"
+                    widget.tk.call(
+                        listbox, "configure",
+                        "-background", colors["tree_bg"],
+                        "-foreground", colors["tree_fg"],
+                        "-selectbackground", colors["select_bg"],
+                        "-selectforeground", colors["select_fg"],
+                    )
+                except tk.TclError:
+                    pass
+
+    def _get_custom_theme_colors(self):
+        base = THEME_COLORS["dark"]
+        custom = self._settings.get("custom_theme") or {}
+        colors = {}
+        for key, value in base.items():
+            custom_value = custom.get(key, value)
+            colors[key] = custom_value if isinstance(custom_value, str) else value
+        return colors
 
     def _apply_script_text_theme(self, colors: dict):
         self.script_text.configure(
@@ -1939,6 +1974,12 @@ class App:
         except ValueError:
             port = 4950
 
+        def on_apply(theme_settings):
+            theme_setting = theme_settings.get("theme", "auto")
+            self._settings["custom_theme"] = theme_settings.get("custom_theme", {})
+            self._settings["theme"] = theme_setting
+            self.apply_theme_setting(theme_setting)
+
         def on_save(settings):
             # Update keybindings
             self.kb_bindings = settings["keybindings"]
@@ -1950,6 +1991,7 @@ class App:
 
             # Apply theme
             theme_setting = settings.get("theme", "auto")
+            self._settings["custom_theme"] = settings.get("custom_theme", {})
             self.apply_theme_setting(theme_setting)
 
             # Save to file
@@ -1957,6 +1999,7 @@ class App:
             self._settings["threeds"] = settings["threeds"]
             self._settings["discord"] = settings["discord"]
             self._settings["theme"] = theme_setting
+            self._settings["custom_theme"] = settings.get("custom_theme", {})
             self._settings["confirm_delete"] = settings.get("confirm_delete", True)
             if save_settings(self._settings):
                 self.set_status("Settings saved.")
@@ -1970,8 +2013,11 @@ class App:
             threeds_port=port,
             theme_mode=self._theme_setting,
             discord_settings=self._settings.get("discord", {}),
+            custom_theme=self._settings.get("custom_theme", {}),
+            theme_colors=THEME_COLORS,
             confirm_delete=self._settings.get("confirm_delete", True),
-            on_save_callback=on_save
+            on_save_callback=on_save,
+            on_apply_callback=on_apply
         )
         self.root.wait_window(dialog)
 
