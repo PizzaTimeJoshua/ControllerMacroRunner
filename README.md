@@ -922,9 +922,9 @@ Edit `ScriptEngine.py` in `_build_default_registry()`:
 Use PyInstaller to create a standalone executable:
 
 ```bat
-py -m pip install pyinstaller
+python -m pip install pyinstaller
 
-py -m PyInstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
+pythoh -m PyInstaller --noconsole --onedir --clean --name ControllerMacroRunner ^
   --add-data "scripts;scripts" ^
   --add-data "py_scripts;py_scripts" ^
   main.py

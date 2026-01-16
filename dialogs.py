@@ -939,6 +939,9 @@ class CommandEditorDialog(tk.Toplevel):
                     raise ValueError("rgb must be 'R,G,B'")
                 return [int(parts[0]), int(parts[1]), int(parts[2])]
 
+            case "pyfile":
+                return str(raw)
+
             case "expr":
                     return raw
 
