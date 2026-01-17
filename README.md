@@ -960,3 +960,4 @@ This project is provided as-is for personal use. See individual component licens
 - [insideGadgets](https://shop.insidegadgets.com/) for the USB Wireless TX hardware
 - [FFmpeg](https://ffmpeg.org/) for video capture capabilities
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for text recognition
+- [Pokemon Automation](https://pokemonautomation.github.io/index.html) for inspiration and controller compatibility
