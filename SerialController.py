@@ -676,8 +676,13 @@ class SerialController:
         start = time.time()
         buffer = bytearray()
         raw_log = bytearray()
-
+        packet=[]
+        packet.append(0x54) # Transmit
+        packet.append(0x00) # High byte
+        packet.append(0x00) # Low byte
+        
         while (time.time() - start) < timeout_s:
+            ser.write(packet) # Send a dummy packet to elicit a response (if any)
             waiting = ser.in_waiting
             if waiting:
                 data = ser.read(waiting)
@@ -736,7 +741,6 @@ class SerialController:
                 pabotbase.MessageType.ACK_REQUEST_I32,
                 pabotbase.MessageType.ACK_REQUEST_DATA,
             }
-
             def accept_passive(resp):
                 if resp.msg_type == pabotbase.MessageType.ERROR_READY:
                     return True
