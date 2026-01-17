@@ -1131,6 +1131,11 @@ class App:
             return
         if self._key_debug and ("shift" in (event.keysym or "").lower() or ks.startswith("shift")):
             self._debug_key_event("release", event, ks)
+        if ks in ("shift_l", "shift_r") and ks not in self.kb_down:
+            # If Tk reports the wrong shift key on release, fall back to the one that's down.
+            other = "shift_r" if ks == "shift_l" else "shift_l"
+            if other in self.kb_down:
+                ks = other
         if ks == "shift":
             released = False
             for shift_key in ("shift_l", "shift_r"):
