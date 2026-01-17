@@ -811,8 +811,12 @@ class App:
 
         # Indent view toggle (if you already have it, keep yours)
         self.indent_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(btnrow, text="Indent view", variable=self.indent_var,
-                        command=self.populate_script_view).pack(side="right", padx=6)
+        ttk.Checkbutton(
+            btnrow,
+            text="Indent view",
+            variable=self.indent_var,
+            command=lambda: self.populate_script_view(preserve_view=True)
+        ).pack(side="right", padx=6)
 
         # --- Vars
         vars_box = ttk.LabelFrame(right_split, text="Variables")
@@ -2374,7 +2378,13 @@ class App:
         self.save_script()
 
     # ---- script viewer
-    def populate_script_view(self):
+    def populate_script_view(self, preserve_view=False):
+        yview = None
+        xview = None
+        if preserve_view:
+            yview = self.script_text.yview()
+            xview = self.script_text.xview()
+
         # Enable editing to modify content
         self.script_text.config(state="normal")
         self.script_text.delete("1.0", "end")
@@ -2447,6 +2457,11 @@ class App:
         # Disable editing to make it read-only
         self.script_text.config(state="disabled")
         self.highlight_ip(-1)
+        if preserve_view:
+            if yview is not None:
+                self.script_text.yview_moveto(yview[0])
+            if xview is not None:
+                self.script_text.xview_moveto(xview[0])
 
 
 
@@ -2507,7 +2522,7 @@ class App:
         except Exception as e:
             # This should be rare now; but don't crash UI
             self.set_status(f"Index warning: {e}")
-        self.populate_script_view()
+        self.populate_script_view(preserve_view=True)
         self.mark_dirty(True)
         self._update_structure_warning()
 

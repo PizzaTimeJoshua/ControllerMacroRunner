@@ -971,6 +971,7 @@ class ScriptEngine:
         }
 
         try:
+            self.status_cb("Running Script.")
             while not self._stop.is_set() and 0 <= self.ip < len(self.commands):
                 self.on_ip_update(self.ip)
 
