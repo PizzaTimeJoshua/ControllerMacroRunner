@@ -1719,12 +1719,12 @@ class App:
             output_channels = min(2, int(output_info.get('maxOutputChannels', 2)))
 
             # Use larger buffer for WASAPI stability and reduce callback frequency
-            input_chunk = 2048
-            output_chunk = 4096
+            input_chunk = 2048 * 4
+            output_chunk = 4096 * 2
 
             # Create a larger queue with more buffering to prevent underruns
             import queue
-            self.audio_queue = queue.Queue(maxsize=100)
+            self.audio_queue = queue.Queue(maxsize=200)
 
             # Resampling state for smoother conversion
             self.audio_resample_buffer = np.array([], dtype=np.int16)
