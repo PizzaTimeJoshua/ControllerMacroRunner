@@ -280,6 +280,14 @@ class App:
         star = " *" if self.dirty else ""
         self.root.title(f"Controller Macro Runner - {name}{star}")
 
+    def _persist_setting_value(self, key: str, value: str):
+        value = (value or "").strip()
+        if not value or self._settings.get(key) == value:
+            return
+        self._settings[key] = value
+        if not save_settings(self._settings):
+            self.set_status("Settings save failed.")
+
     def apply_theme_setting(self, theme_setting: str):
         theme_setting = normalize_theme_setting(theme_setting)
         self._theme_setting = theme_setting
@@ -605,6 +613,7 @@ class App:
         self.cam_var = tk.StringVar()
         self.cam_combo = ttk.Combobox(top, textvariable=self.cam_var, state="readonly", width=16)
         self.cam_combo.grid(row=0, column=1, sticky="w", padx=(6, 6))
+        self.cam_combo.bind("<<ComboboxSelected>>", self._on_camera_selected)
         ttk.Button(top, text="Refresh", command=self.refresh_cameras).grid(row=0, column=2, padx=(0, 0))
         self.cam_toggle_btn = ttk.Button(top, text="Start Cam", command=self.toggle_camera)
         self.cam_toggle_btn.grid(row=0, column=3, padx=(0, 6))
@@ -630,6 +639,7 @@ class App:
         self.com_var = tk.StringVar()
         self.com_combo = ttk.Combobox(top, textvariable=self.com_var, state="readonly", width=12)
         self.com_combo.grid(row=0, column=5, sticky="w", padx=(6, 6))
+        self.com_combo.bind("<<ComboboxSelected>>", self._on_com_selected)
         ttk.Button(top, text="Refresh", command=self.refresh_ports).grid(row=0, column=6, padx=(0, 0))
         self.ser_btn = ttk.Button(top, text="Connect", command=self.toggle_serial)
         self.ser_btn.grid(row=0, column=7, sticky="w", padx=(0, 4))
@@ -721,6 +731,7 @@ class App:
         ttk.Label(self.audio_input_frame, text="Audio Input:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.audio_input_combo = ttk.Combobox(self.audio_input_frame, textvariable=self.audio_input_var, state="readonly", width=30)
         self.audio_input_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        self.audio_input_combo.bind("<<ComboboxSelected>>", self._on_audio_input_selected)
         ttk.Button(self.audio_input_frame, text="Refresh", command=self.refresh_audio_devices).grid(row=0, column=2, padx=(0, 6))
         self.audio_toggle_btn = ttk.Button(self.audio_input_frame, text="Start Audio", command=self.toggle_audio)
         self.audio_toggle_btn.grid(row=0, column=3)
@@ -733,6 +744,7 @@ class App:
         ttk.Label(self.audio_output_frame, text="Audio Output:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.audio_output_combo = ttk.Combobox(self.audio_output_frame, textvariable=self.audio_output_var, state="readonly", width=30)
         self.audio_output_combo.grid(row=0, column=1, sticky="ew")
+        self.audio_output_combo.bind("<<ComboboxSelected>>", self._on_audio_output_selected)
 
         # Initially hide audio controls (camera panel starts hidden)
         self.audio_input_frame.grid_remove()
@@ -1358,14 +1370,43 @@ class App:
             self._disable_camera_keyboard_focus()
             self.set_status("Camera returned to main window")
 
+    def _on_camera_selected(self, event=None):
+        device = self.cam_var.get().strip()
+        if device:
+            self._persist_setting_value("default_camera_device", device)
+
+    def _on_audio_input_selected(self, event=None):
+        name = self.audio_input_var.get().strip()
+        if name and name not in ("No input devices", "PyAudio not installed"):
+            self._persist_setting_value("default_audio_input_device", name)
+
+    def _on_audio_output_selected(self, event=None):
+        name = self.audio_output_var.get().strip()
+        if name and name not in ("No output devices", "PyAudio not installed"):
+            self._persist_setting_value("default_audio_output_device", name)
+
+    def _on_com_selected(self, event=None):
+        port = self.com_var.get().strip()
+        if port:
+            self._persist_setting_value("default_com_port", port)
+
 
 
     # ---- camera
     def refresh_cameras(self):
         cams = list_dshow_video_devices()
         self.cam_combo["values"] = cams
-        if cams and self.cam_var.get() not in cams:
-            self.cam_var.set(cams[0])
+        current = self.cam_var.get().strip()
+        saved = (self._settings.get("default_camera_device") or "").strip()
+        selection = None
+        if current in cams:
+            selection = current
+        elif saved and saved in cams:
+            selection = saved
+        elif cams:
+            selection = cams[0]
+        if selection:
+            self.cam_var.set(selection)
 
     def toggle_camera(self):
         if self.cam_running:
@@ -1406,6 +1447,7 @@ class App:
         self.cam_running = True
         self.cam_toggle_btn.configure(text="Stop Cam")
         self.set_status(f"Camera streaming: {device}")
+        self._persist_setting_value("default_camera_device", device)
 
         self.cam_thread = threading.Thread(target=self._camera_reader_loop, daemon=True)
         self.cam_thread.start()
@@ -1662,10 +1704,29 @@ class App:
         self.audio_input_combo["values"] = input_names if input_names else ["No input devices"]
         self.audio_output_combo["values"] = output_names if output_names else ["No output devices"]
 
-        if input_names and self.audio_input_var.get() not in input_names:
-            self.audio_input_var.set(input_names[0])
-        if output_names and self.audio_output_var.get() not in output_names:
-            self.audio_output_var.set(output_names[0])
+        current_input = self.audio_input_var.get().strip()
+        saved_input = (self._settings.get("default_audio_input_device") or "").strip()
+        input_selection = None
+        if current_input in input_names:
+            input_selection = current_input
+        elif saved_input and saved_input in input_names:
+            input_selection = saved_input
+        elif input_names:
+            input_selection = input_names[0]
+        if input_selection:
+            self.audio_input_var.set(input_selection)
+
+        current_output = self.audio_output_var.get().strip()
+        saved_output = (self._settings.get("default_audio_output_device") or "").strip()
+        output_selection = None
+        if current_output in output_names:
+            output_selection = current_output
+        elif saved_output and saved_output in output_names:
+            output_selection = saved_output
+        elif output_names:
+            output_selection = output_names[0]
+        if output_selection:
+            self.audio_output_var.set(output_selection)
 
     def toggle_audio(self):
         if self.audio_running:
@@ -1913,6 +1974,8 @@ class App:
 
             self.audio_running = True
             self.audio_toggle_btn.configure(text="Stop Audio")
+            self._persist_setting_value("default_audio_input_device", input_name)
+            self._persist_setting_value("default_audio_output_device", output_name)
 
             conversion_info = ""
             if input_rate != output_rate:
@@ -1995,8 +2058,17 @@ class App:
     def refresh_ports(self):
         ports = list_com_ports()
         self.com_combo["values"] = ports
-        if ports and self.com_var.get() not in ports:
-            self.com_var.set(ports[0])
+        current = self.com_var.get().strip()
+        saved = (self._settings.get("default_com_port") or "").strip()
+        selection = None
+        if current in ports:
+            selection = current
+        elif saved and saved in ports:
+            selection = saved
+        elif ports:
+            selection = ports[0]
+        if selection:
+            self.com_var.set(selection)
 
     def toggle_serial(self):
         if self.serial.connected:
@@ -2011,6 +2083,7 @@ class App:
             try:
                 self.serial.connect(port)
                 self.ser_btn.configure(text="Disconnect")
+                self._persist_setting_value("default_com_port", port)
             except Exception as e:
                 messagebox.showerror("Serial error", str(e))
     def set_channel(self):

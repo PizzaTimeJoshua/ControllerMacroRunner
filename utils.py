@@ -126,6 +126,10 @@ DEFAULT_SETTINGS = {
         "user_id": "",
     },
     "camera_ratio": "3:2 (GBA)",
+    "default_camera_device": "",
+    "default_audio_input_device": "",
+    "default_audio_output_device": "",
+    "default_com_port": "",
     "theme": "auto",
     "custom_theme": {
         "bg": "#0f1612",
@@ -180,6 +184,14 @@ def load_settings() -> dict:
             result["discord"] = {**DEFAULT_SETTINGS["discord"], **loaded["discord"]}
         if isinstance(loaded.get("camera_ratio"), str):
             result["camera_ratio"] = loaded["camera_ratio"]
+        if isinstance(loaded.get("default_camera_device"), str):
+            result["default_camera_device"] = loaded["default_camera_device"]
+        if isinstance(loaded.get("default_audio_input_device"), str):
+            result["default_audio_input_device"] = loaded["default_audio_input_device"]
+        if isinstance(loaded.get("default_audio_output_device"), str):
+            result["default_audio_output_device"] = loaded["default_audio_output_device"]
+        if isinstance(loaded.get("default_com_port"), str):
+            result["default_com_port"] = loaded["default_com_port"]
         if isinstance(loaded.get("theme"), str):
             theme = normalize_theme_setting(loaded["theme"])
             result["theme"] = theme
