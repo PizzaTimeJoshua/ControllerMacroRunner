@@ -95,6 +95,10 @@ class UsbTxSerialBackend:
         self._high = 0
         self._low = 0
 
+        # Keepalive pause mechanism for thread-safe script commands
+        self._keepalive_paused = False
+        self._keepalive_pause_lock = threading.Lock()
+
     @property
     def connected(self):
         return self.ser is not None and self.ser.is_open
@@ -176,6 +180,16 @@ class UsbTxSerialBackend:
         self.ser.flush()
         self.status_cb(f"Sent channel set: 0x{ch:02X} (power cycle receiver required)")
 
+    def pause_keepalive(self):
+        """Pause the keepalive loop for thread-safe script commands."""
+        with self._keepalive_pause_lock:
+            self._keepalive_paused = True
+
+    def resume_keepalive(self):
+        """Resume the keepalive loop after script commands complete."""
+        with self._keepalive_pause_lock:
+            self._keepalive_paused = False
+
     def _keepalive_loop(self):
         while self._running:
             if not self.connected:
@@ -183,6 +197,12 @@ class UsbTxSerialBackend:
             if self.app and getattr(self.app, "backend_var", None):
                 if self.app.backend_var.get() != "USB Serial":
                     break
+            # Skip sending if keepalive is paused (script command in progress)
+            with self._keepalive_pause_lock:
+                paused = self._keepalive_paused
+            if paused:
+                time.sleep(self.interval_s)
+                continue
             with self._lock:
                 high = self._high
                 low = self._low
@@ -231,6 +251,10 @@ class PABotBaseSerialBackend:
         self._command_timeout_s = 0.2
         self._use_interrupt_on_change = True
         self._wait_for_ack = False
+
+        # Keepalive pause mechanism for thread-safe script commands
+        self._keepalive_paused = False
+        self._keepalive_pause_lock = threading.Lock()
 
     @property
     def connected(self):
@@ -494,6 +518,16 @@ class PABotBaseSerialBackend:
         if state_changed:
             self._send_event.set()
 
+    def pause_keepalive(self):
+        """Pause the keepalive loop for thread-safe script commands."""
+        with self._keepalive_pause_lock:
+            self._keepalive_paused = True
+
+    def resume_keepalive(self):
+        """Resume the keepalive loop after script commands complete."""
+        with self._keepalive_pause_lock:
+            self._keepalive_paused = False
+
     def _keepalive_loop(self):
         while self._running:
             if not self.connected:
@@ -507,6 +541,12 @@ class PABotBaseSerialBackend:
 
             if not self.connected:
                 break
+
+            # Skip sending if keepalive is paused (script command in progress)
+            with self._keepalive_pause_lock:
+                paused = self._keepalive_paused
+            if paused:
+                continue
 
             now = time.monotonic()
             with self._lock:
@@ -921,3 +961,17 @@ class SerialController:
             self.backend.reset_neutral()
         else:
             self.set_buttons([])
+
+    def pause_keepalive(self):
+        """Pause the keepalive loop for thread-safe script commands."""
+        if not self.backend:
+            return
+        if hasattr(self.backend, "pause_keepalive"):
+            self.backend.pause_keepalive()
+
+    def resume_keepalive(self):
+        """Resume the keepalive loop after script commands complete."""
+        if not self.backend:
+            return
+        if hasattr(self.backend, "resume_keepalive"):
+            self.backend.resume_keepalive()

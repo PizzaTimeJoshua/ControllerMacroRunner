@@ -1147,23 +1147,32 @@ class ScriptEngine:
             ms_raw = c.get("ms", 50)
             ms = float(resolve_number(ctx, ms_raw))
 
-            use_timed_press = bool(getattr(backend, "supports_timed_press", False))
-            if use_timed_press:
-                backend.press_buttons(buttons, ms)
+            # Pause keepalive loop to prevent threading conflicts
+            if hasattr(backend, "pause_keepalive"):
+                backend.pause_keepalive()
+
+            try:
+                use_timed_press = bool(getattr(backend, "supports_timed_press", False))
+                if use_timed_press:
+                    backend.press_buttons(buttons, ms)
+                    if ms > 0:
+                        interrupted = precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
+                        if interrupted:
+                            backend.set_buttons([])
+                    return
+
+                # Press buttons with precise timing
+                backend.set_buttons(buttons)
                 if ms > 0:
-                    interrupted = precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
-                    if interrupted:
-                        backend.set_buttons([])
-                return
+                    # Use high-precision interruptible sleep
+                    precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
 
-            # Press buttons with precise timing
-            backend.set_buttons(buttons)
-            if ms > 0:
-                # Use high-precision interruptible sleep
-                precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
-
-            # Release buttons
-            backend.set_buttons([])
+                # Release buttons
+                backend.set_buttons([])
+            finally:
+                # Resume keepalive loop
+                if hasattr(backend, "resume_keepalive"):
+                    backend.resume_keepalive()
 
 
         def cmd_hold(ctx, c):
@@ -1636,37 +1645,46 @@ class ScriptEngine:
             total_duration = duration_ms / 1000.0
             end_time = time.perf_counter() + total_duration
 
-            # Main mashing loop with precise timing
-            while time.perf_counter() < end_time:
-                if ctx["stop"].is_set():
-                    break
+            # Pause keepalive loop to prevent threading conflicts
+            if hasattr(backend, "pause_keepalive"):
+                backend.pause_keepalive()
 
-                # Press buttons
-                if use_timed_press:
-                    backend.press_buttons(buttons, hold_ms)
-                else:
-                    backend.set_buttons(buttons)
+            try:
+                # Main mashing loop with precise timing
+                while time.perf_counter() < end_time:
+                    if ctx["stop"].is_set():
+                        break
 
-                # Hold for precise duration
-                if precise_sleep_interruptible(hold_sec, ctx["stop"]):
-                    break  # Interrupted
+                    # Press buttons
+                    if use_timed_press:
+                        backend.press_buttons(buttons, hold_ms)
+                    else:
+                        backend.set_buttons(buttons)
 
-                if not use_timed_press:
-                    # Release buttons
-                    backend.set_buttons([])
+                    # Hold for precise duration
+                    if precise_sleep_interruptible(hold_sec, ctx["stop"]):
+                        break  # Interrupted
 
-                # Check if we have time for a full wait cycle
-                time_remaining = end_time - time.perf_counter()
-                if time_remaining <= 0:
-                    break
+                    if not use_timed_press:
+                        # Release buttons
+                        backend.set_buttons([])
 
-                # Wait for precise duration, but not longer than remaining time
-                wait_duration = min(wait_sec, time_remaining)
-                if precise_sleep_interruptible(wait_duration, ctx["stop"]):
-                    break  # Interrupted
+                    # Check if we have time for a full wait cycle
+                    time_remaining = end_time - time.perf_counter()
+                    if time_remaining <= 0:
+                        break
 
-            # Ensure buttons are released at the end
-            backend.set_buttons([])
+                    # Wait for precise duration, but not longer than remaining time
+                    wait_duration = min(wait_sec, time_remaining)
+                    if precise_sleep_interruptible(wait_duration, ctx["stop"]):
+                        break  # Interrupted
+
+                # Ensure buttons are released at the end
+                backend.set_buttons([])
+            finally:
+                # Resume keepalive loop
+                if hasattr(backend, "resume_keepalive"):
+                    backend.resume_keepalive()
 
         def cmd_contains(ctx, c):
             """
