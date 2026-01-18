@@ -153,9 +153,9 @@ class UsbTxSerialBackend:
         self._thread.start()
 
         # Pairing warm-up (neutral for ~1s)
-        self.status_cb("Pairing warm-up: neutral for ~1 second...")
+        self.status_cb("Pairing warm-up: neutral for ~2.5 second...")
         self.set_state(0, 0)
-        time.sleep(1.0)
+        time.sleep(2.5)
         self.status_cb("Pairing warm-up done.")
 
     def disconnect(self):

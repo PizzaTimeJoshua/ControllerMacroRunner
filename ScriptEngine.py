@@ -308,7 +308,7 @@ def eval_condition(ctx, left, op, right):
     if op == "<=": return L <= R
     if op == ">":  return L > R
     if op == ">=": return L >= R
-    messagebox.showerror(f"Unknown op: {op}")
+    messagebox.showerror("Comparison Error", f"Unknown op: {op}")
     return
 def resolve_number(ctx, raw):
     """
@@ -343,7 +343,7 @@ def build_label_index(commands):
         if c.get("cmd") == "label":
             name = c.get("name")
             if not name:
-                messagebox.showerror(f"label missing name at index {i}")
+                messagebox.showerror("Label Error", f"label missing name at index {i}")
                 return
             labels[name] = i
     return labels
@@ -358,13 +358,13 @@ def build_if_matching(commands, strict=True):
         elif c.get("cmd") == "end_if":
             if not stack:
                 if strict:
-                    messagebox.showerror(f"end_if without if at index {i}")
+                    messagebox.showerror("If Statement Error", f"end_if without if at index {i}")
                     return
                 continue
             j = stack.pop()
             m[j] = i
     if stack and strict:
-        messagebox.showerror(f"Unclosed if at index {stack[-1]}")
+        messagebox.showerror("If Statement Error", f"Unclosed if at index {stack[-1]}")
         return
     return m, stack  # return leftovers for warnings
 
@@ -379,14 +379,14 @@ def build_while_matching(commands, strict=True):
         elif c.get("cmd") == "end_while":
             if not stack:
                 if strict:
-                    messagebox.showerror(f"end_while without while at index {i}")
+                    messagebox.showerror("While Loop Error", f"end_while without while at index {i}")
                     return
                 continue
             w = stack.pop()
             while_to_end[w] = i
             end_to_while[i] = w
     if stack and strict:
-        messagebox.showerror(f"Unclosed while at index {stack[-1]}")
+        messagebox.showerror("While Loop Error", f"Unclosed while at index {stack[-1]}")
         return
     return while_to_end, end_to_while, stack
 
@@ -711,7 +711,7 @@ def eval_expr(ctx, expr: str):
     local_vars = {}
     for name in used:
         if name not in ctx["vars"]:
-            messagebox.showerror(f"Expression references undefined variable: ${name}")
+            messagebox.showerror("Variable Error", f"Expression references undefined variable: ${name}")
             return
         local_vars[name] = ctx["vars"][name]
 
@@ -746,26 +746,26 @@ def eval_expr(ctx, expr: str):
             # Allow calls only to whitelisted functions or math.<fn>
             if isinstance(n.func, ast.Name):
                 if n.func.id not in allowed:
-                    messagebox.showerror(f"Function not allowed: {n.func.id}")
+                    messagebox.showerror("Expression Error", f"Function not allowed: {n.func.id}")
                     return
             elif isinstance(n.func, ast.Attribute):
                 # allow math.xxx only
                 if not (isinstance(n.func.value, ast.Name) and n.func.value.id == "math"):
-                    messagebox.showerror("Only math.<fn>(...) calls are allowed")
+                    messagebox.showerror("Expression Error", "Only math.<fn>(...) calls are allowed")
                     return
             else:
-                messagebox.showerror("Invalid function call")
+                messagebox.showerror("Expression Error", "Invalid function call")
                 return
             continue
         if isinstance(n, ast.Attribute):
             # allow math.<attr> only
             if not (isinstance(n.value, ast.Name) and n.value.id == "math"):
-                messagebox.showerror("Only math.<attr> is allowed")
+                messagebox.showerror("Expression Error", "Only math.<attr> is allowed")
                 return
             continue
 
         # Block everything else (comparisons, subscripts, lambdas, etc.)
-        messagebox.showerror(f"Disallowed expression element: {type(n).__name__}")
+        messagebox.showerror("Expression Error", f"Disallowed expression element: {type(n).__name__}")
         return
 
     return eval(compile(node, "<expr>", "eval"), {"__builtins__": {}}, allowed)
@@ -844,7 +844,7 @@ class ScriptEngine:
         with open(path, "r", encoding="utf-8") as f:
             cmds = json.load(f)
         if not isinstance(cmds, list):
-            messagebox.showerror("Script must be a list of command objects.")
+            messagebox.showerror("Script Error", "Script must be a list of command objects.")
             return
 
         rename_map = {
@@ -861,16 +861,16 @@ class ScriptEngine:
 
         for i, c in enumerate(cmds):
             if not isinstance(c, dict) or "cmd" not in c:
-                messagebox.showerror(f"Command at index {i} must be an object with 'cmd'.")
+                messagebox.showerror("Script Error", f"Command at index {i} must be an object with 'cmd'.")
                 return
             name = c["cmd"]
             if name not in self.registry:
-                messagebox.showerror(f"Unknown cmd '{name}' at index {i}.")
+                messagebox.showerror("Script Error", f"Unknown cmd '{name}' at index {i}.")
                 return
             spec = self.registry[name]
             for k in spec.required_keys:
                 if k not in c:
-                    messagebox.showerror(f"'{name}' missing required key '{k}' at index {i}.")
+                    messagebox.showerror("Script Error", f"'{name}' missing required key '{k}' at index {i}.")
                     return
 
         self.commands = cmds
@@ -1141,7 +1141,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("press: buttons must be a list")
+                messagebox.showerror("Command Error", "press: buttons must be a list")
                 return
 
             ms_raw = c.get("ms", 50)
@@ -1182,7 +1182,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("hold: buttons must be a list")
+                messagebox.showerror("Command Error", "hold: buttons must be a list")
                 return
 
             # Pause keepalive loop to prevent threading conflicts
@@ -1203,7 +1203,7 @@ class ScriptEngine:
         def cmd_goto(ctx, c):
             label = c["label"]
             if label not in ctx["labels"]:
-                messagebox.showerror(f"Unknown label: {label}")
+                messagebox.showerror("Label Error", f"Unknown label: {label}")
                 return
             ctx["ip"] = ctx["labels"][label]
 
@@ -1341,7 +1341,7 @@ class ScriptEngine:
                 ctx["vars"][out] = text
             except Exception as e:
                 ctx["vars"][out] = ""
-                messagebox.showerror(f"read_text error: {e}")
+                messagebox.showerror("error", f"read_text error: {e}")
 
         def cmd_comment(ctx, c):
             pass
@@ -1349,7 +1349,7 @@ class ScriptEngine:
         def cmd_run_python(ctx, c):
             file_name = str(c["file"]).strip()
             if not file_name:
-                messagebox.showerror("run_python: file is empty")
+                messagebox.showerror("error", "run_python: file is empty")
                 return
 
             if os.path.isabs(file_name):
@@ -1358,17 +1358,22 @@ class ScriptEngine:
                 script_path = os.path.join("py_scripts", file_name)
 
             if not os.path.exists(script_path):
-                messagebox.showerror(f"run_python: file not found: {script_path}")
+                messagebox.showerror("error",f"run_python: file not found: {script_path}")
                 return
 
             args = c.get("args", [])
+            # Handle $variable as entire args value
+            if isinstance(args, str) and args.strip().startswith("$"):
+                args = resolve_value(ctx, args.strip())
+            elif isinstance(args, str):
+                args = ast.literal_eval(args)
             if args is None:
                 args = []
             if not isinstance(args, list):
-                messagebox.showerror("run_python: args must be a JSON list")
+                messagebox.showerror("error", "run_python: args must be a JSON list")
                 return
 
-            # NEW: allow $var references (and nested structures)
+            # Resolve $var references inside list elements
             args = resolve_vars_deep(ctx, args)
 
             timeout_s = int(c.get("timeout_s", 10))
@@ -1570,7 +1575,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("press_ir: buttons must be a list")
+                messagebox.showerror("Command Error", "press_ir: buttons must be a list")
                 return
 
             backend.set_ir_buttons(buttons)
@@ -1591,7 +1596,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("hold_ir: buttons must be a list")
+                messagebox.showerror("Command Error", "hold_ir: buttons must be a list")
                 return
 
             backend.set_ir_buttons(buttons)
@@ -1605,7 +1610,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("press_interface: buttons must be a list")
+                messagebox.showerror("Command Error", "press_interface: buttons must be a list")
                 return
 
             backend.set_interface_buttons(buttons)
@@ -1626,7 +1631,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("hold_interface: buttons must be a list")
+                messagebox.showerror("Command Error", "hold_interface: buttons must be a list")
                 return
 
             backend.set_interface_buttons(buttons)
@@ -1638,7 +1643,7 @@ class ScriptEngine:
 
             buttons = c.get("buttons", [])
             if not isinstance(buttons, list):
-                messagebox.showerror("mash: buttons must be a list")
+                messagebox.showerror("Command Error", "mash: buttons must be a list")
                 return
 
             duration_ms = float(resolve_number(ctx, c.get("duration_ms", 1000)))
@@ -1732,12 +1737,12 @@ class ScriptEngine:
 
             # Validate that choices is a list
             if not isinstance(choices, list):
-                messagebox.showerror("random: choices must be a list")
+                messagebox.showerror("Command Error", "random: choices must be a list")
                 return
 
             # Validate that choices is not empty
             if len(choices) == 0:
-                messagebox.showerror("random: choices list cannot be empty")
+                messagebox.showerror("Command Error", "random: choices list cannot be empty")
                 return
 
             # Select a random choice
@@ -1760,7 +1765,7 @@ class ScriptEngine:
 
             # Validate range
             if min_val > max_val:
-                messagebox.showerror(f"random_range: min ({min_val}) cannot be greater than max ({max_val})")
+                messagebox.showerror("Command Error", f"random_range: min ({min_val}) cannot be greater than max ({max_val})")
                 return
 
             # Generate random value

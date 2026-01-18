@@ -2417,7 +2417,8 @@ class App:
                 pretty = ("      " * depth) + pretty  # 6 spaces per level
 
             # Format line with index number (right-aligned in 4 chars)
-            line_text = f"{i:4}  {pretty}\n"
+            # 1 char for marker (">" when current), then 4 for index, then 2 spaces
+            line_text = f" {i:4}  {pretty}\n"
 
             # Insert line
             line_start = self.script_text.index("end-1c")
@@ -2430,8 +2431,8 @@ class App:
                 self.script_text.tag_add("comment", line_start, line_end)
             else:
                 # Find and color all $variable references in blue
-                # Search after the line number (skip first 6 chars: "   0  ")
-                content_start_col = 6
+                # Search after the line number (skip first 7 chars: "    0  " including marker area)
+                content_start_col = 7
                 line_num = i + 1  # Text widget is 1-indexed
 
                 math_exprs = []
@@ -2456,6 +2457,8 @@ class App:
 
         # Disable editing to make it read-only
         self.script_text.config(state="disabled")
+        # Reset IP marker tracking since content was rebuilt
+        self._prev_ip = None
         self.highlight_ip(-1)
         if preserve_view:
             if yview is not None:
@@ -2501,15 +2504,37 @@ class App:
         # Clear IP highlight (syntax highlighting is preserved in tags)
         self.script_text.tag_remove("ip", "1.0", "end")
 
+        # Temporarily enable editing to update the marker
+        self.script_text.config(state="normal")
+
+        # Remove ">" marker from the previous IP line
+        prev_ip = getattr(self, "_prev_ip", None)
+        if prev_ip is not None and prev_ip >= 0 and prev_ip < len(self.engine.commands):
+            prev_line_marker = f"{prev_ip + 1}.0"
+            prev_line_marker_end = f"{prev_ip + 1}.1"
+            self.script_text.delete(prev_line_marker, prev_line_marker_end)
+            self.script_text.insert(prev_line_marker, " ")
+
         if ip is None or ip < 0:
+            self._prev_ip = None
+            self.script_text.config(state="disabled")
             return
 
         if ip < len(self.engine.commands):
+            # Add ">" marker to the current IP line
+            line_marker = f"{ip + 1}.0"
+            line_marker_end = f"{ip + 1}.1"
+            self.script_text.delete(line_marker, line_marker_end)
+            self.script_text.insert(line_marker, ">")
+
             # Highlight the instruction pointer line (Text widget is 1-indexed)
             line_start = f"{ip + 1}.0"
             line_end = f"{ip + 1}.end"
             self.script_text.tag_add("ip", line_start, line_end)
             self.script_text.see(line_start)
+
+        self._prev_ip = ip
+        self.script_text.config(state="disabled")
 
     # ---- editor actions
     def _get_selected_index(self):
