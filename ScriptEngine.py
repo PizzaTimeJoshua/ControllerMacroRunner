@@ -1185,7 +1185,16 @@ class ScriptEngine:
                 messagebox.showerror("hold: buttons must be a list")
                 return
 
-            backend.set_buttons(buttons)
+            # Pause keepalive loop to prevent threading conflicts
+            if hasattr(backend, "pause_keepalive"):
+                backend.pause_keepalive()
+
+            try:
+                backend.set_buttons(buttons)
+            finally:
+                # Resume keepalive loop
+                if hasattr(backend, "resume_keepalive"):
+                    backend.resume_keepalive()
 
 
         def cmd_label(ctx, c):
