@@ -1036,6 +1036,22 @@ class ScriptEngine:
             w = c.get('width', 10)
             h = c.get('height', 10)
             return f"FindAreaColor ({x},{y}) {w}x{h} ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} -> ${c.get('out')}"
+        def fmt_wait_for_color(c):
+            wait_str = "match" if c.get('wait_for', True) else "no match"
+            interval = c.get('interval', 0.1)
+            timeout = c.get('timeout', 0)
+            timeout_str = f" timeout={timeout}s" if timeout > 0 else ""
+            return f"WaitForColor ({c.get('x')},{c.get('y')}) ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} until {wait_str} (check every {interval}s{timeout_str}) -> ${c.get('out')}"
+        def fmt_wait_for_color_area(c):
+            x = c.get('x', 0)
+            y = c.get('y', 0)
+            w = c.get('width', 10)
+            h = c.get('height', 10)
+            wait_str = "match" if c.get('wait_for', True) else "no match"
+            interval = c.get('interval', 0.1)
+            timeout = c.get('timeout', 0)
+            timeout_str = f" timeout={timeout}s" if timeout > 0 else ""
+            return f"WaitForAreaColor ({x},{y}) {w}x{h} ~ {c.get('rgb')} ΔE≤{c.get('tol',10)} until {wait_str} (check every {interval}s{timeout_str}) -> ${c.get('out')}"
         def fmt_comment(c): return f"// {c.get('text','')}"
         def fmt_run_python(c):
             out = c.get("out")
@@ -1312,6 +1328,116 @@ class ScriptEngine:
             delta_e = delta_e_cie76(avg_rgb, target)
             ok = delta_e <= tol
             ctx["vars"][out] = ok
+
+        def cmd_wait_for_color(ctx, c):
+            """Wait until pixel at (x,y) matches/doesn't match target color."""
+            import time
+
+            out = c.get("out", "match")
+            x = int(resolve_value(ctx, c["x"]))
+            y = int(resolve_value(ctx, c["y"]))
+            target = (int(c["rgb"][0]), int(c["rgb"][1]), int(c["rgb"][2]))
+            tol = float(c.get("tol", 10))
+            interval = float(c.get("interval", 0.1))
+            timeout = float(c.get("timeout", 0))  # 0 = no timeout
+            wait_for = bool(c.get("wait_for", True))  # True = wait for match, False = wait for no match
+
+            start_time = time.time()
+
+            while True:
+                # Check stop flag
+                if ctx.get("stop_requested", False):
+                    ctx["vars"][out] = False
+                    return
+
+                frame = ctx["get_frame"]()
+
+                if frame is not None:
+                    h, w, _ = frame.shape
+                    if 0 <= x < w and 0 <= y < h:
+                        b, g, r = frame[y, x].tolist()
+                        sample_rgb = (int(r), int(g), int(b))
+
+                        delta_e = delta_e_cie76(sample_rgb, target)
+                        matches = delta_e <= tol
+
+                        # Check if condition is met
+                        if matches == wait_for:
+                            ctx["vars"][out] = True
+                            return
+
+                # Check timeout
+                if timeout > 0:
+                    elapsed = time.time() - start_time
+                    if elapsed >= timeout:
+                        ctx["vars"][out] = False
+                        return
+
+                # Wait before next check
+                time.sleep(interval)
+
+        def cmd_wait_for_color_area(ctx, c):
+            """Wait until average color in area matches/doesn't match target color."""
+            import time
+
+            out = c.get("out", "match")
+            x = int(resolve_value(ctx, c.get("x", 0)))
+            y = int(resolve_value(ctx, c.get("y", 0)))
+            width = int(resolve_value(ctx, c.get("width", 10)))
+            height = int(resolve_value(ctx, c.get("height", 10)))
+            target = (int(c["rgb"][0]), int(c["rgb"][1]), int(c["rgb"][2]))
+            tol = float(c.get("tol", 10))
+            interval = float(c.get("interval", 0.1))
+            timeout = float(c.get("timeout", 0))  # 0 = no timeout
+            wait_for = bool(c.get("wait_for", True))  # True = wait for match, False = wait for no match
+
+            start_time = time.time()
+
+            while True:
+                # Check stop flag
+                if ctx.get("stop_requested", False):
+                    ctx["vars"][out] = False
+                    return
+
+                frame = ctx["get_frame"]()
+
+                if frame is not None:
+                    h_frame, w_frame, _ = frame.shape
+
+                    # Clamp region to frame bounds
+                    x_clamped = max(0, min(x, w_frame - 1))
+                    y_clamped = max(0, min(y, h_frame - 1))
+                    x2 = max(x_clamped + 1, min(x_clamped + width, w_frame))
+                    y2 = max(y_clamped + 1, min(y_clamped + height, h_frame))
+
+                    # Extract region (BGR)
+                    region_bgr = frame[y_clamped:y2, x_clamped:x2]
+
+                    if region_bgr.size > 0:
+                        # Calculate average color
+                        avg_b = float(np.mean(region_bgr[:, :, 0]))
+                        avg_g = float(np.mean(region_bgr[:, :, 1]))
+                        avg_r = float(np.mean(region_bgr[:, :, 2]))
+
+                        avg_rgb = (int(avg_r), int(avg_g), int(avg_b))
+
+                        delta_e = delta_e_cie76(avg_rgb, target)
+                        matches = delta_e <= tol
+
+                        # Check if condition is met
+                        if matches == wait_for:
+                            ctx["vars"][out] = True
+                            return
+
+                # Check timeout
+                if timeout > 0:
+                    elapsed = time.time() - start_time
+                    if elapsed >= timeout:
+                        ctx["vars"][out] = False
+                        return
+
+                # Wait before next check
+                time.sleep(interval)
 
         def cmd_read_text(ctx, c):
             """OCR a region of the camera frame and store the text in a variable."""
@@ -1830,6 +1956,10 @@ class ScriptEngine:
                 """Returns True if stop was requested."""
                 return ctx["stop"].is_set()
 
+            # Pause keepalive loop to prevent threading conflicts
+            if hasattr(backend, "pause_keepalive"):
+                backend.pause_keepalive()
+
             try:
                 for letter in name:
                     if check_stop():
@@ -1929,6 +2059,9 @@ class ScriptEngine:
             finally:
                 # Ensure buttons are released
                 backend.set_buttons([])
+                # Resume keepalive loop
+                if hasattr(backend, "resume_keepalive"):
+                    backend.resume_keepalive()
 
 
         cond_schema = [
@@ -2138,6 +2271,48 @@ class ScriptEngine:
                 format_fn=fmt_find_area_color,
                 group="Image",
                 order=11,
+                test=True,
+                exportable=False,
+                export_note="Requires camera frame processing which is unsupported at the moment."
+            ),
+            CommandSpec(
+                "wait_for_color", ["x", "y", "rgb"], cmd_wait_for_color,
+                doc="Wait until pixel at (x,y) matches/doesn't match target color. Polls at regular intervals until condition is met or timeout.",
+                arg_schema=[
+                    {"key": "x", "type": "int", "default": 0, "help": "X coordinate"},
+                    {"key": "y", "type": "int", "default": 0, "help": "Y coordinate"},
+                    {"key": "rgb", "type": "rgb", "default": [255, 0, 0], "help": "Target RGB as [R,G,B]"},
+                    {"key": "tol", "type": "float", "default": 10, "help": "Delta E tolerance (0-1: imperceptible, 2-10: noticeable, 10+: obvious)"},
+                    {"key": "interval", "type": "float", "default": 0.1, "help": "Check interval in seconds"},
+                    {"key": "timeout", "type": "float", "default": 0, "help": "Timeout in seconds (0 = no timeout)"},
+                    {"key": "wait_for", "type": "bool", "default": True, "help": "True = wait for match, False = wait for no match"},
+                    {"key": "out", "type": "str", "default": "match", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_wait_for_color,
+                group="Image",
+                order=12,
+                test=True,
+                exportable=False,
+                export_note="Requires camera frame processing which is unsupported at the moment."
+            ),
+            CommandSpec(
+                "wait_for_color_area", ["x", "y", "width", "height", "rgb"], cmd_wait_for_color_area,
+                doc="Wait until average color in area matches/doesn't match target color. Polls at regular intervals until condition is met or timeout.",
+                arg_schema=[
+                    {"key": "x", "type": "int", "default": 0, "help": "X coordinate (top-left corner)"},
+                    {"key": "y", "type": "int", "default": 0, "help": "Y coordinate (top-left corner)"},
+                    {"key": "width", "type": "int", "default": 10, "help": "Width of region"},
+                    {"key": "height", "type": "int", "default": 10, "help": "Height of region"},
+                    {"key": "rgb", "type": "rgb", "default": [255, 0, 0], "help": "Target RGB as [R,G,B]"},
+                    {"key": "tol", "type": "float", "default": 10, "help": "Delta E tolerance (0-1: imperceptible, 2-10: noticeable, 10+: obvious)"},
+                    {"key": "interval", "type": "float", "default": 0.1, "help": "Check interval in seconds"},
+                    {"key": "timeout", "type": "float", "default": 0, "help": "Timeout in seconds (0 = no timeout)"},
+                    {"key": "wait_for", "type": "bool", "default": True, "help": "True = wait for match, False = wait for no match"},
+                    {"key": "out", "type": "str", "default": "match", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_wait_for_color_area,
+                group="Image",
+                order=13,
                 test=True,
                 exportable=False,
                 export_note="Requires camera frame processing which is unsupported at the moment."

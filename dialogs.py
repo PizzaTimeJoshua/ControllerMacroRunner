@@ -846,8 +846,8 @@ class CommandEditorDialog(tk.Toplevel):
                 foreground="gray"
             ).pack(side="left", padx=(10, 0))
 
-        # Add "Pick Color from Camera" button for find_color command
-        if name == "find_color" and self.select_color_callback:
+        # Add "Pick Color from Camera" button for find_color and wait_for_color commands
+        if name in ("find_color", "wait_for_color") and self.select_color_callback:
             next_row = len(spec.arg_schema)
             picker_frame = ttk.Frame(self.fields_frame)
             picker_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))
@@ -863,8 +863,8 @@ class CommandEditorDialog(tk.Toplevel):
                 foreground="gray"
             ).pack(side="left", padx=(10, 0))
 
-        # Add "Select Area & Color from Camera" button for find_area_color command
-        if name == "find_area_color" and self.select_area_color_callback:
+        # Add "Select Area & Color from Camera" button for find_area_color and wait_for_color_area commands
+        if name in ("find_area_color", "wait_for_color_area") and self.select_area_color_callback:
             next_row = len(spec.arg_schema)
             area_color_frame = ttk.Frame(self.fields_frame)
             area_color_frame.grid(row=next_row, column=0, columnspan=3, sticky="ew", pady=(10, 0))

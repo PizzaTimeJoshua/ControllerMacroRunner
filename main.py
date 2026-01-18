@@ -3020,6 +3020,152 @@ class App:
                 )
                 return ("find_area_color Test", msg)
 
+            case "wait_for_color":
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("wait_for_color Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                rgb = cmd_obj.get("rgb", [0, 0, 0])
+                tol = float(self._resolve_test_value(cmd_obj.get("tol", 10)))
+                interval = float(self._resolve_test_value(cmd_obj.get("interval", 0.1)))
+                timeout = float(self._resolve_test_value(cmd_obj.get("timeout", 0)))
+                wait_for = bool(self._resolve_test_value(cmd_obj.get("wait_for", True)))
+                out = (cmd_obj.get("out") or "match").strip()
+
+                h, w, _ = frame.shape
+                if not (0 <= x < w and 0 <= y < h):
+                    return ("wait_for_color Test",
+                            f"Point out of bounds.\n"
+                            f"Requested: ({x},{y})\n"
+                            f"Frame size: {w}x{h}")
+
+                # Sample pixel (frame is BGR)
+                b, g, r = frame[y, x].tolist()
+                sampled_rgb = (int(r), int(g), int(b))
+                target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+
+                # Calculate CIE76 Delta E
+                delta_e = ScriptEngine.delta_e_cie76(sampled_rgb, target)
+                matches = delta_e <= tol
+
+                # Interpretation of Delta E values
+                if delta_e <= 1:
+                    perception = "imperceptible"
+                elif delta_e <= 2:
+                    perception = "barely perceptible"
+                elif delta_e <= 10:
+                    perception = "noticeable"
+                elif delta_e <= 49:
+                    perception = "obvious"
+                else:
+                    perception = "very different"
+
+                wait_mode = "match" if wait_for else "no match"
+                condition_met = matches == wait_for
+                timeout_str = f"{timeout}s" if timeout > 0 else "none"
+
+                msg = (
+                    f"Point: ({x},{y})\n"
+                    f"Sampled RGB: {list(sampled_rgb)}\n"
+                    f"Target RGB:  {list(target)}\n\n"
+                    f"Delta E (CIE76): {delta_e:.2f} ({perception})\n"
+                    f"Tolerance: {tol}\n"
+                    f"Currently matches: {matches}\n\n"
+                    f"Wait mode: wait for {wait_mode}\n"
+                    f"Check interval: {interval}s\n"
+                    f"Timeout: {timeout_str}\n\n"
+                    f"Condition met now: {condition_met}\n"
+                    f"Would set ${out}: {condition_met}"
+                )
+                return ("wait_for_color Test", msg)
+
+            case "wait_for_color_area":
+                frame = self.get_latest_frame()
+                if frame is None:
+                    return ("wait_for_color_area Test", "No camera frame available.\nStart the camera first.")
+
+                # Read args
+                x = int(self._resolve_test_value(cmd_obj.get("x", 0)))
+                y = int(self._resolve_test_value(cmd_obj.get("y", 0)))
+                width = int(self._resolve_test_value(cmd_obj.get("width", 10)))
+                height = int(self._resolve_test_value(cmd_obj.get("height", 10)))
+                rgb = cmd_obj.get("rgb", [0, 0, 0])
+                tol = float(self._resolve_test_value(cmd_obj.get("tol", 10)))
+                interval = float(self._resolve_test_value(cmd_obj.get("interval", 0.1)))
+                timeout = float(self._resolve_test_value(cmd_obj.get("timeout", 0)))
+                wait_for = bool(self._resolve_test_value(cmd_obj.get("wait_for", True)))
+                out = (cmd_obj.get("out") or "match").strip()
+
+                h_frame, w_frame, _ = frame.shape
+
+                # Clamp region to frame bounds
+                x = max(0, min(x, w_frame - 1))
+                y = max(0, min(y, h_frame - 1))
+                x2 = max(x + 1, min(x + width, w_frame))
+                y2 = max(y + 1, min(y + height, h_frame))
+
+                # Check bounds
+                if x >= w_frame or y >= h_frame:
+                    return ("wait_for_color_area Test",
+                            f"Region out of bounds.\n"
+                            f"Top-left: ({x},{y})\n"
+                            f"Frame size: {w_frame}x{h_frame}")
+
+                # Extract region (BGR)
+                region_bgr = frame[y:y2, x:x2]
+
+                if region_bgr.size == 0:
+                    return ("wait_for_color_area Test", "Region is empty (size is 0).")
+
+                # Calculate average color
+                avg_b = float(np.mean(region_bgr[:, :, 0]))
+                avg_g = float(np.mean(region_bgr[:, :, 1]))
+                avg_r = float(np.mean(region_bgr[:, :, 2]))
+
+                avg_rgb = (int(avg_r), int(avg_g), int(avg_b))
+                target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+
+                # Calculate CIE76 Delta E
+                delta_e = ScriptEngine.delta_e_cie76(avg_rgb, target)
+                matches = delta_e <= tol
+
+                # Interpretation of Delta E values
+                if delta_e <= 1:
+                    perception = "imperceptible"
+                elif delta_e <= 2:
+                    perception = "barely perceptible"
+                elif delta_e <= 10:
+                    perception = "noticeable"
+                elif delta_e <= 49:
+                    perception = "obvious"
+                else:
+                    perception = "very different"
+
+                actual_w = x2 - x
+                actual_h = y2 - y
+                wait_mode = "match" if wait_for else "no match"
+                condition_met = matches == wait_for
+                timeout_str = f"{timeout}s" if timeout > 0 else "none"
+
+                msg = (
+                    f"Region: ({x},{y}) {actual_w}x{actual_h}\n"
+                    f"Pixels sampled: {region_bgr.shape[0] * region_bgr.shape[1]}\n\n"
+                    f"Average RGB: {list(avg_rgb)}\n"
+                    f"Target RGB:  {list(target)}\n\n"
+                    f"Delta E (CIE76): {delta_e:.2f} ({perception})\n"
+                    f"Tolerance: {tol}\n"
+                    f"Currently matches: {matches}\n\n"
+                    f"Wait mode: wait for {wait_mode}\n"
+                    f"Check interval: {interval}s\n"
+                    f"Timeout: {timeout_str}\n\n"
+                    f"Condition met now: {condition_met}\n"
+                    f"Would set ${out}: {condition_met}"
+                )
+                return ("wait_for_color_area Test", msg)
+
             case "read_text":
                 # Check if pytesseract is available
                 if not ScriptEngine.PYTESSERACT_AVAILABLE:
@@ -3089,7 +3235,7 @@ class App:
         # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color" | "find_area_color" | "read_text":
+            case "find_color" | "find_area_color" | "wait_for_color" | "wait_for_color_area" | "read_text":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")

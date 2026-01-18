@@ -466,6 +466,59 @@ Sample a pixel and compare against a target color using perceptual CIE76 Delta E
 - 2-10: Perceptible at a glance
 - 10+: Obvious difference
 
+#### find_area_color
+Calculate average color in a region and compare against a target color using perceptual CIE76 Delta E.
+
+```json
+{"cmd": "find_area_color", "x": 100, "y": 200, "width": 50, "height": 50, "rgb": [255, 0, 0], "tol": 10, "out": "match"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x, y | int | 0 | Top-left corner coordinates |
+| width, height | int | 10 | Region size |
+| rgb | [R,G,B] | required | Target color (0-255 each) |
+| tol | number | 10 | Delta E tolerance |
+| out | string | "match" | Variable to store boolean result |
+
+#### wait_for_color
+Wait until a pixel matches or doesn't match a target color. Polls at regular intervals until the condition is met or timeout occurs.
+
+```json
+{"cmd": "wait_for_color", "x": 100, "y": 200, "rgb": [255, 0, 0], "tol": 10, "interval": 0.1, "timeout": 30, "wait_for": true, "out": "match"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x, y | int | required | Pixel coordinates |
+| rgb | [R,G,B] | required | Target color (0-255 each) |
+| tol | number | 10 | Delta E tolerance |
+| interval | number | 0.1 | Check interval in seconds |
+| timeout | number | 0 | Timeout in seconds (0 = no timeout) |
+| wait_for | bool | true | true = wait for match, false = wait for no match |
+| out | string | "match" | Variable to store boolean result (true if condition met, false if timeout) |
+
+**Example use cases:**
+- Wait for a UI element to appear: `"wait_for": true`
+- Wait for a UI element to disappear: `"wait_for": false`
+- Poll every 0.5 seconds: `"interval": 0.5`
+- Timeout after 60 seconds: `"timeout": 60`
+
+#### wait_for_color_area
+Wait until the average color in a region matches or doesn't match a target color. Polls at regular intervals until the condition is met or timeout occurs.
+
+```json
+{"cmd": "wait_for_color_area", "x": 100, "y": 200, "width": 50, "height": 50, "rgb": [255, 0, 0], "tol": 10, "interval": 0.1, "timeout": 30, "wait_for": true, "out": "match"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| x, y | int | 0 | Top-left corner coordinates |
+| width, height | int | 10 | Region size |
+| rgb | [R,G,B] | required | Target color (0-255 each) |
+| tol | number | 10 | Delta E tolerance |
+| interval | number | 0.1 | Check interval in seconds |
+| timeout | number | 0 | Timeout in seconds (0 = no timeout) |
+| wait_for | bool | true | true = wait for match, false = wait for no match |
+| out | string | "match" | Variable to store boolean result (true if condition met, false if timeout) |
+
 #### read_text
 OCR a region of the camera frame (requires pytesseract).
 
@@ -729,6 +782,9 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | save_frame | No | Requires camera and filesystem |
 | discord_status | No | Requires Discord webhook |
 | find_color | No | Requires camera |
+| find_area_color | No | Requires camera |
+| wait_for_color | No | Requires camera |
+| wait_for_color_area | No | Requires camera |
 | read_text | No | Requires camera + pytesseract |
 | label/goto | No | Not compatible with structured code |
 | tap_touch | No | 3DS-specific |
