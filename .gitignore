@@ -2,7 +2,13 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Downloaded Binaries
 *.dll
+bin/ffmpeg/
+bin/Tesseract-OCR/
+bin/python-embedded/
+bin/*.exe
 
 # C extensions
 *.so
