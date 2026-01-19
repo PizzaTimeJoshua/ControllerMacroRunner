@@ -1,0 +1,1007 @@
+[
+  {
+    "cmd": "comment",
+    "text": "Settings"
+  },
+  {
+    "cmd": "comment",
+    "text": "Must Have Text Speed to Fast"
+  },
+  {
+    "cmd": "set",
+    "var": "PlayerName",
+    "value": "Buoy"
+  },
+  {
+    "cmd": "set",
+    "var": "Gender",
+    "value": "Boy"
+  },
+  {
+    "cmd": "comment",
+    "text": "Target SID Frame - Minimum 710"
+  },
+  {
+    "cmd": "set",
+    "var": "SID_Frame",
+    "value": 750
+  },
+  {
+    "cmd": "comment",
+    "text": "Frame Perfect timings"
+  },
+  {
+    "cmd": "set",
+    "var": "RefreshRate",
+    "value": 59.7275
+  },
+  {
+    "cmd": "set",
+    "var": "frame",
+    "value": "=1000 / $RefreshRate"
+  },
+  {
+    "cmd": "comment",
+    "text": "Soft Reset"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A",
+      "B",
+      "Start",
+      "Select"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 5000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "comment",
+    "text": "New Game"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 10000
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 15000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "comment",
+    "text": "Gender Selection"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 800
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 2000
+  },
+  {
+    "cmd": "comment",
+    "text": "Name"
+  },
+  {
+    "cmd": "type_name",
+    "name": "$PlayerName",
+    "confirm": false,
+    "move_delay_ms": 200,
+    "select_delay_ms": 600,
+    "press_delay_ms": 400,
+    "button_hold_ms": 50
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "comment",
+    "text": "Mash + Wait until SID Frame"
+  },
+  {
+    "cmd": "set",
+    "var": "wait_for_SID",
+    "value": "=$frame * ($SID_Frame - 50) - 11000"
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "wait",
+    "ms": "$wait_for_SID"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "comment",
+    "text": "Check TID and Calculate SID"
+  },
+  {
+    "cmd": "wait",
+    "ms": 17000
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Start"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 3000
+  },
+  {
+    "cmd": "read_text",
+    "x": 461,
+    "y": 37,
+    "width": 85,
+    "height": 49,
+    "out": "TID",
+    "scale": 1,
+    "threshold": 0,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "run_python",
+    "file": "gen3_sid_from_tid.py",
+    "args": [
+      "$TID",
+      "$SID_Frame"
+    ],
+    "out": "SIDs",
+    "timeout_s": 10
+  },
+  {
+    "cmd": "comment",
+    "text": "Save Game"
+  },
+  {
+    "cmd": "label",
+    "name": "Save_Truck"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "B"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 3000
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 4000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 200
+  },
+  {
+    "cmd": "find_area_color",
+    "x": 157,
+    "y": 99,
+    "width": 32,
+    "height": 30,
+    "rgb": [
+      255,
+      255,
+      255
+    ],
+    "tol": 10.0,
+    "out": "game_save"
+  },
+  {
+    "cmd": "if",
+    "left": "$game_save",
+    "op": "==",
+    "right": false
+  },
+  {
+    "cmd": "goto",
+    "label": "Save_Truck"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "comment",
+    "text": "Move from Truck to Room"
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 157,
+    "y": 99,
+    "width": 32,
+    "height": 30,
+    "rgb": [
+      255,
+      255,
+      255
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": false,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 496,
+    "y": 364,
+    "width": 22,
+    "height": 22,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 6000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 496,
+    "y": 364,
+    "width": 22,
+    "height": 22,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 0.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 6000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "press",
+    "buttons": [],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 2000
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 1700,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "run_python",
+    "file": "rse_clock_frames.py",
+    "args": [],
+    "out": "clock_frames",
+    "timeout_s": 10
+  },
+  {
+    "cmd": "comment",
+    "text": "Assign Wall Clock to Current Time"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": "=$clock_frames * $frame"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 7700,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "comment",
+    "text": "Watch TV"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 450
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 450
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 200
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 14000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "comment",
+    "text": "Go To Rival's House"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 1200
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 1200
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 1500
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Left"
+    ]
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 2500
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "comment",
+    "text": "Enter Rivals House"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "B"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Down"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Down"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "comment",
+    "text": "Go to Save Birch"
+  },
+  {
+    "cmd": "wait",
+    "ms": 2500
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": 1700
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Left"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": 700
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "B"
+    ],
+    "duration_ms": 3000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 6000
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 1500,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 250
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "Left"
+    ],
+    "duration_ms": 1000,
+    "hold_ms": 200,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "comment",
+    "text": "Save Game for Starter"
+  }
+]
