@@ -19,6 +19,15 @@
   },
   {
     "cmd": "comment",
+    "text": "Treeko. Torchic, Mudkip"
+  },
+  {
+    "cmd": "set",
+    "var": "Starter",
+    "value": "Torchic"
+  },
+  {
+    "cmd": "comment",
     "text": "Target SID Frame - Minimum 710"
   },
   {
@@ -949,7 +958,7 @@
     "buttons": [
       "B"
     ],
-    "duration_ms": 3000,
+    "duration_ms": 3200,
     "hold_ms": 25,
     "wait_ms": 25
   },
@@ -1003,5 +1012,64 @@
   {
     "cmd": "comment",
     "text": "Save Game for Starter"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Start"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 2000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "comment",
+    "text": "Ready to Soft Reset Starter"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A",
+      "B",
+      "Start",
+      "Select"
+    ],
+    "ms": 80
   }
 ]
