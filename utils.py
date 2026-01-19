@@ -59,6 +59,27 @@ def tesseract_path() -> str:
 
 
 # ----------------------------
+# FFmpeg Download Support
+# ----------------------------
+
+# Using full-shared build which includes DLLs for codec support
+# Note: .7z format requires 7-Zip for extraction
+FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+FFMPEG_DIR = "bin/ffmpeg"
+FFMPEG_VERSION = "release-full-shared"
+
+
+# ----------------------------
+# Tesseract Download Support
+# ----------------------------
+
+# UB-Mannheim provides Windows installers - we extract with 7z to avoid elevation
+TESSERACT_URL = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
+TESSERACT_DIR = "bin/Tesseract-OCR"
+TESSERACT_VERSION = "5.5.0"
+
+
+# ----------------------------
 # Embedded Python Support
 # ----------------------------
 
@@ -197,6 +218,392 @@ def download_embedded_python(progress_callback=None) -> tuple[bool, str]:
         return False, f"Download failed: HTTP {e.code}"
     except zipfile.BadZipFile:
         return False, "Downloaded file is corrupted"
+    except Exception as e:
+        return False, f"Installation failed: {e}"
+
+
+# ----------------------------
+# 7-Zip Helper (needed for .7z and NSIS extraction)
+# ----------------------------
+
+def _get_7za_path(progress_callback=None) -> str | None:
+    """Get path to 7z.exe, downloading if necessary.
+
+    Downloads modern 7-Zip (v24.09) using a two-step process:
+    1. Download 7zr.exe (standalone, can extract .7z)
+    2. Use 7zr.exe to extract full 7z.exe + 7z.dll from the installer
+
+    We need the full 7z.exe (not 7za.exe) for NSIS installer support.
+    """
+    import shutil
+    import urllib.request
+    import subprocess
+    import tempfile
+
+    # Check if 7z is on PATH
+    seven_zip = shutil.which("7z") or shutil.which("7za")
+    if seven_zip:
+        return seven_zip
+
+    # Check for bundled 7z.exe (full version with NSIS support)
+    bin_dir = exe_dir_path("bin")
+    bundled_7z = os.path.join(bin_dir, "7z.exe")
+    if os.path.exists(bundled_7z):
+        return bundled_7z
+
+    # Download modern 7-Zip using two-step process
+    try:
+        os.makedirs(bin_dir, exist_ok=True)
+
+        if progress_callback:
+            progress_callback(0, "Downloading 7-Zip...")
+
+        # Step 1: Download 7zr.exe (standalone reduced version, ~600KB)
+        bundled_7zr = os.path.join(bin_dir, "7zr.exe")
+        if not os.path.exists(bundled_7zr):
+            url_7zr = "https://www.7-zip.org/a/7zr.exe"
+            req = urllib.request.Request(url_7zr, headers={"User-Agent": "ControllerMacroRunner/1.0"})
+            with urllib.request.urlopen(req, timeout=60) as response:
+                with open(bundled_7zr, "wb") as out:
+                    out.write(response.read())
+
+        # Step 2: Download and extract full 7-Zip installer to get 7z.exe + 7z.dll
+        # The x64 installer is a 7z archive that can be extracted with 7zr
+        url_installer = "https://www.7-zip.org/a/7z2409-x64.exe"
+
+        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        req = urllib.request.Request(url_installer, headers={"User-Agent": "ControllerMacroRunner/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as response:
+            with open(tmp_path, "wb") as out:
+                out.write(response.read())
+
+        # Extract 7z.exe and 7z.dll from the installer
+        with tempfile.TemporaryDirectory() as extract_dir:
+            result = subprocess.run(
+                [bundled_7zr, "x", "-y", f"-o{extract_dir}", tmp_path],
+                capture_output=True,
+                timeout=60
+            )
+
+            if result.returncode == 0:
+                # Copy 7z.exe and 7z.dll to bin folder
+                for filename in ["7z.exe", "7z.dll"]:
+                    src = os.path.join(extract_dir, filename)
+                    if os.path.exists(src):
+                        shutil.copy2(src, os.path.join(bin_dir, filename))
+
+        os.remove(tmp_path)
+
+        if os.path.exists(bundled_7z):
+            return bundled_7z
+
+    except Exception:
+        pass
+
+    return None
+
+
+# ----------------------------
+# FFmpeg Availability and Download
+# ----------------------------
+
+def is_ffmpeg_available() -> bool:
+    """Check if FFmpeg is installed locally or on PATH."""
+    import shutil
+
+    # Check local installation
+    exe_local = exe_dir_path(f"{FFMPEG_DIR}/ffmpeg.exe")
+    if os.path.exists(exe_local):
+        return True
+
+    # Check bundled (PyInstaller)
+    bundled = resource_path(f"{FFMPEG_DIR}/ffmpeg.exe")
+    if os.path.exists(bundled):
+        return True
+
+    # Check PATH
+    return shutil.which("ffmpeg") is not None
+
+
+def get_ffmpeg_dir() -> str:
+    """Get the directory where FFmpeg should be installed."""
+    return exe_dir_path(FFMPEG_DIR)
+
+
+def download_ffmpeg(progress_callback=None) -> tuple[bool, str]:
+    """
+    Download and extract FFmpeg full-shared package.
+
+    Args:
+        progress_callback: Optional function(percent: int, status: str) called during download
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    import urllib.request
+    import tempfile
+    import shutil
+    import subprocess
+
+    target_dir = get_ffmpeg_dir()
+
+    try:
+        if progress_callback:
+            progress_callback(0, "Checking for 7-Zip...")
+
+        # Get 7za for extraction (.7z files require 7-Zip)
+        seven_zip = _get_7za_path(progress_callback)
+        if not seven_zip:
+            return False, "Could not find or download 7-Zip. Please install 7-Zip and try again."
+
+        if progress_callback:
+            progress_callback(5, "Connecting to gyan.dev...")
+
+        with tempfile.NamedTemporaryFile(suffix=".7z", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+
+        try:
+            req = urllib.request.Request(
+                FFMPEG_URL,
+                headers={"User-Agent": "ControllerMacroRunner/1.0"}
+            )
+
+            with urllib.request.urlopen(req, timeout=300) as response:
+                total_size = int(response.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 65536
+
+                if progress_callback:
+                    progress_callback(5, "Downloading FFmpeg...")
+
+                with open(tmp_path, "wb") as out_file:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        out_file.write(chunk)
+                        downloaded += len(chunk)
+
+                        if total_size > 0 and progress_callback:
+                            percent = 5 + int((downloaded / total_size) * 75)
+                            mb_done = downloaded / (1024 * 1024)
+                            mb_total = total_size / (1024 * 1024)
+                            progress_callback(percent, f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
+
+            if progress_callback:
+                progress_callback(85, "Extracting FFmpeg...")
+
+            # Remove existing installation
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Extract to temp directory first using 7z
+            with tempfile.TemporaryDirectory() as extract_dir:
+                result = subprocess.run(
+                    [seven_zip, "x", "-y", f"-o{extract_dir}", tmp_path],
+                    capture_output=True,
+                    timeout=300
+                )
+
+                if result.returncode != 0:
+                    stderr = result.stderr.decode('utf-8', errors='ignore')
+                    return False, f"Extraction failed: {stderr}"
+
+                # Find the bin folder containing ffmpeg.exe
+                bin_folder = None
+                for root, dirs, files in os.walk(extract_dir):
+                    if "ffmpeg.exe" in files:
+                        bin_folder = root
+                        break
+
+                if not bin_folder:
+                    return False, "Extraction failed: ffmpeg.exe not found in archive"
+
+                # Copy all files from bin folder to target directory
+                for filename in os.listdir(bin_folder):
+                    src_path = os.path.join(bin_folder, filename)
+                    if os.path.isfile(src_path):
+                        shutil.copy2(src_path, os.path.join(target_dir, filename))
+
+            if progress_callback:
+                progress_callback(100, "Done!")
+
+            # Verify installation
+            ffmpeg_exe = os.path.join(target_dir, "ffmpeg.exe")
+            if not os.path.exists(ffmpeg_exe):
+                return False, "Extraction failed: ffmpeg.exe not found"
+
+            return True, "FFmpeg installed successfully"
+
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    except urllib.error.URLError as e:
+        return False, f"Download failed: {e.reason}"
+    except urllib.error.HTTPError as e:
+        return False, f"Download failed: HTTP {e.code}"
+    except subprocess.TimeoutExpired:
+        return False, "Extraction timed out"
+    except Exception as e:
+        return False, f"Installation failed: {e}"
+
+
+# ----------------------------
+# Tesseract Availability and Download
+# ----------------------------
+
+def is_tesseract_available() -> bool:
+    """Check if Tesseract is installed locally or on PATH."""
+    import shutil
+
+    # Check local installation
+    exe_local = exe_dir_path(f"{TESSERACT_DIR}/tesseract.exe")
+    if os.path.exists(exe_local):
+        return True
+
+    # Check bundled (PyInstaller)
+    bundled = resource_path(f"{TESSERACT_DIR}/tesseract.exe")
+    if os.path.exists(bundled):
+        return True
+
+    # Check PATH
+    return shutil.which("tesseract") is not None
+
+
+def get_tesseract_dir() -> str:
+    """Get the directory where Tesseract should be installed."""
+    return exe_dir_path(TESSERACT_DIR)
+
+
+def download_tesseract(progress_callback=None) -> tuple[bool, str]:
+    """
+    Download and install Tesseract OCR by extracting the NSIS installer.
+
+    Args:
+        progress_callback: Optional function(percent: int, status: str) called during download
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    import urllib.request
+    import tempfile
+    import shutil
+    import subprocess
+
+    target_dir = get_tesseract_dir()
+
+    try:
+        os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+
+        if progress_callback:
+            progress_callback(0, "Checking for 7-Zip...")
+
+        # Get 7za for extraction (need full version with DLLs for NSIS support)
+        seven_zip = _get_7za_path(progress_callback)
+        if not seven_zip:
+            return False, "Could not find or download 7-Zip. Please install 7-Zip and try again."
+
+        if progress_callback:
+            progress_callback(5, "Connecting to GitHub...")
+
+        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+
+        try:
+            req = urllib.request.Request(
+                TESSERACT_URL,
+                headers={"User-Agent": "ControllerMacroRunner/1.0"}
+            )
+
+            with urllib.request.urlopen(req, timeout=120) as response:
+                total_size = int(response.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 65536
+
+                if progress_callback:
+                    progress_callback(5, "Downloading Tesseract...")
+
+                with open(tmp_path, "wb") as out_file:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        out_file.write(chunk)
+                        downloaded += len(chunk)
+
+                        if total_size > 0 and progress_callback:
+                            percent = 5 + int((downloaded / total_size) * 75)
+                            mb_done = downloaded / (1024 * 1024)
+                            mb_total = total_size / (1024 * 1024)
+                            progress_callback(percent, f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
+
+            if progress_callback:
+                progress_callback(85, "Extracting Tesseract...")
+
+            # Remove existing installation
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Extract NSIS installer using 7z (requires full 7za with DLLs)
+            result = subprocess.run(
+                [seven_zip, "x", "-y", f"-o{target_dir}", tmp_path],
+                capture_output=True,
+                timeout=300
+            )
+
+            if result.returncode != 0:
+                stdout = result.stdout.decode('utf-8', errors='ignore').strip()
+                stderr = result.stderr.decode('utf-8', errors='ignore').strip()
+                error_msg = stderr or stdout or f"Exit code {result.returncode}"
+                return False, f"Extraction failed: {error_msg}"
+
+            # Verify tesseract.exe exists
+            tesseract_exe = os.path.join(target_dir, "tesseract.exe")
+            if not os.path.exists(tesseract_exe):
+                return False, "Extraction failed: tesseract.exe not found"
+
+            # Clean up NSIS metadata files
+            for cleanup_item in ["$PLUGINSDIR", "$TEMP", "Uninstall.exe", "uninstall.exe"]:
+                cleanup_path = os.path.join(target_dir, cleanup_item)
+                if os.path.isdir(cleanup_path):
+                    shutil.rmtree(cleanup_path, ignore_errors=True)
+                elif os.path.isfile(cleanup_path):
+                    try:
+                        os.remove(cleanup_path)
+                    except Exception:
+                        pass
+
+            if progress_callback:
+                progress_callback(100, "Done!")
+
+            # Verify installation
+            tesseract_exe = os.path.join(target_dir, "tesseract.exe")
+            if not os.path.exists(tesseract_exe):
+                return False, "Extraction failed: tesseract.exe not found"
+
+            return True, f"Tesseract {TESSERACT_VERSION} installed successfully"
+
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    except urllib.error.URLError as e:
+        return False, f"Download failed: {e.reason}"
+    except urllib.error.HTTPError as e:
+        return False, f"Download failed: HTTP {e.code}"
+    except subprocess.TimeoutExpired:
+        return False, "Extraction timed out"
     except Exception as e:
         return False, f"Installation failed: {e}"
 

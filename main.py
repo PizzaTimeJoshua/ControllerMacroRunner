@@ -41,6 +41,14 @@ from utils import (
     normalize_theme_setting,
     resolve_theme_mode,
     is_python_available,
+    is_ffmpeg_available,
+    is_tesseract_available,
+    download_ffmpeg,
+    download_tesseract,
+    get_ffmpeg_dir,
+    get_tesseract_dir,
+    FFMPEG_VERSION,
+    TESSERACT_VERSION,
 )
 from camera import (
     list_dshow_video_devices,
@@ -54,7 +62,7 @@ from audio import (
     pyaudio,
     list_audio_devices,
 )
-from dialogs import CommandEditorDialog, SettingsDialog, PythonDownloadDialog
+from dialogs import CommandEditorDialog, SettingsDialog, PythonDownloadDialog, DependencyDownloadDialog
 
 # Windows-specific flag to hide console window for subprocesses
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -272,6 +280,9 @@ class App:
         self.refresh_audio_devices()
         self._update_title()
 
+        # Check for missing dependencies after UI is built
+        self.root.after(100, self._check_dependencies_startup)
+
     # ---- title/dirty
     def mark_dirty(self, dirty=True):
         self.dirty = dirty
@@ -289,6 +300,83 @@ class App:
         self._settings[key] = value
         if not save_settings(self._settings):
             self.set_status("Settings save failed.")
+
+    def _check_dependencies_startup(self):
+        """Check for missing dependencies on first startup and offer to download them.
+
+        Only shows the prompt once. After dismissing (yes or no), the prompt
+        won't appear again. Users can download dependencies from Settings.
+        """
+        # Only show this prompt once ever
+        if self._settings.get("dependency_check_shown"):
+            return
+
+        missing = []
+        if not is_ffmpeg_available():
+            missing.append("FFmpeg")
+        if not is_tesseract_available():
+            missing.append("Tesseract OCR")
+
+        if not missing:
+            # No dependencies missing, mark as shown so we don't check again
+            self._settings["dependency_check_shown"] = True
+            save_settings(self._settings)
+            return
+
+        # Build message
+        if len(missing) == 1:
+            msg = f"{missing[0]} is not installed.\n\n"
+            if missing[0] == "FFmpeg":
+                msg += "FFmpeg is required for camera capture functionality."
+            else:
+                msg += "Tesseract is required for text recognition (read_text command)."
+        else:
+            msg = "The following dependencies are not installed:\n\n"
+            msg += "  - FFmpeg (required for camera capture)\n"
+            msg += "  - Tesseract OCR (required for text recognition)\n"
+
+        msg += "\n\nWould you like to download them now?\n\n"
+        msg += "(You can also download later from Settings > Dependencies.)"
+
+        result = messagebox.askyesno(
+            "Missing Dependencies",
+            msg,
+            parent=self.root
+        )
+
+        # Mark as shown regardless of choice - only prompt once
+        self._settings["dependency_check_shown"] = True
+        save_settings(self._settings)
+
+        if not result:
+            return
+
+        # Download missing dependencies sequentially
+        if "FFmpeg" in missing:
+            dialog = DependencyDownloadDialog(
+                self.root,
+                dependency_name="FFmpeg",
+                download_fn=download_ffmpeg,
+                size_hint="~140 MB",
+                version=f"FFmpeg {FFMPEG_VERSION}",
+                location=get_ffmpeg_dir(),
+            )
+            self.root.wait_window(dialog)
+            if dialog.result:
+                self.set_status("FFmpeg installed successfully.")
+
+        if "Tesseract OCR" in missing:
+            dialog = DependencyDownloadDialog(
+                self.root,
+                dependency_name="Tesseract OCR",
+                download_fn=download_tesseract,
+                size_hint="~48 MB",
+                version=f"Tesseract {TESSERACT_VERSION}",
+                location=get_tesseract_dir(),
+            )
+            self.root.wait_window(dialog)
+            if dialog.result:
+                self.set_status("Tesseract installed successfully.")
 
     def apply_theme_setting(self, theme_setting: str):
         theme_setting = normalize_theme_setting(theme_setting)

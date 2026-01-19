@@ -9,7 +9,13 @@ from tkinter import ttk, messagebox, colorchooser
 import json
 
 import SerialController
-from utils import list_python_files, get_default_keybindings
+from utils import (
+    list_python_files, get_default_keybindings,
+    is_ffmpeg_available, is_tesseract_available,
+    get_ffmpeg_dir, get_tesseract_dir,
+    download_ffmpeg, download_tesseract,
+    FFMPEG_VERSION, TESSERACT_VERSION,
+)
 
 
 THEME_KEY_LABELS = {
@@ -100,11 +106,10 @@ class SettingsDialog(tk.Toplevel):
         # Create tabs
         self._create_keybinds_tab()
         self._create_threeds_tab()
+        self._create_appearance_tab()  # Combined Appearance + Custom Theme
+        self._create_dependencies_tab()  # Combined Python + FFmpeg + Tesseract
         self._create_discord_tab()
-        self._create_appearance_tab()
         self._create_editing_tab()
-        self._create_custom_theme_tab()
-        self._create_python_tab()
 
         # Bottom buttons
         btn_frame = ttk.Frame(main)
@@ -195,29 +200,103 @@ class SettingsDialog(tk.Toplevel):
             row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
     def _create_appearance_tab(self):
-        """Create the appearance settings tab."""
+        """Create the appearance settings tab (combined with custom theme)."""
         tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(tab, text="Appearance")
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
 
-        ttk.Label(
-            tab,
-            text="Theme Mode:",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        # Theme Mode section
+        theme_frame = ttk.LabelFrame(tab, text="Theme Mode", padding=10)
+        theme_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        theme_inner = ttk.Frame(theme_frame)
+        theme_inner.pack(fill="x")
+
+        ttk.Label(theme_inner, text="Theme:").pack(side="left")
 
         theme_combo = ttk.Combobox(
-            tab,
+            theme_inner,
             textvariable=self.theme_var,
             state="readonly",
             values=list(self._theme_label_to_value.keys()),
             width=18,
         )
-        theme_combo.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 6))
+        theme_combo.pack(side="left", padx=(10, 0))
 
         ttk.Label(
-            tab,
-            text="Auto follows the system app theme setting.",
+            theme_inner,
+            text="Auto follows system theme",
             foreground="gray",
-        ).grid(row=1, column=0, columnspan=2, sticky="w")
+        ).pack(side="left", padx=(15, 0))
+
+        # Custom Theme Colors section (scrollable)
+        colors_frame = ttk.LabelFrame(tab, text="Custom Theme Colors", padding=10)
+        colors_frame.grid(row=1, column=0, sticky="nsew")
+
+        ttk.Label(
+            colors_frame,
+            text="These colors are used when Theme Mode is set to Custom. Use hex values like #1a2b3c.",
+            foreground="gray",
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Scrollable container for color entries
+        container = ttk.Frame(colors_frame)
+        container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Column headers
+        ttk.Label(inner, text="Color").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(inner, text="Value").grid(row=0, column=1, sticky="w", pady=(0, 6))
+        ttk.Label(inner, text="Preview").grid(row=0, column=3, sticky="w", pady=(0, 6))
+
+        self._custom_theme_keys = self._get_custom_theme_keys()
+        row = 1
+        for key in self._custom_theme_keys:
+            label = THEME_KEY_LABELS.get(key, key)
+            value = self._get_custom_theme_value(key)
+
+            ttk.Label(inner, text=label).grid(row=row, column=0, sticky="w", pady=2)
+
+            var = tk.StringVar(value=value)
+            entry = ttk.Entry(inner, textvariable=var, width=12)
+            entry.grid(row=row, column=1, sticky="w", pady=2)
+
+            ttk.Button(
+                inner,
+                text="Pick",
+                command=lambda k=key: self._pick_custom_color(k),
+            ).grid(row=row, column=2, sticky="w", padx=(6, 0))
+
+            preview = tk.Label(inner, text=" ", width=2, relief="solid", borderwidth=1)
+            preview.grid(row=row, column=3, sticky="w", padx=(6, 0))
+
+            self._custom_theme_vars[key] = var
+            self._custom_theme_previews[key] = preview
+            self._custom_theme_last_valid[key] = value
+            self._update_custom_color_preview(key, value)
+
+            var.trace_add("write", lambda *_args, k=key: self._on_custom_color_change(k))
+            row += 1
 
     def _create_discord_tab(self):
         """Create the Discord webhook settings tab."""
@@ -260,133 +339,102 @@ class SettingsDialog(tk.Toplevel):
             variable=self.confirm_delete_var,
         ).grid(row=1, column=0, sticky="w")
 
-    def _create_custom_theme_tab(self):
-        """Create the custom theme settings tab."""
-        tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Custom Theme")
-
-        ttk.Label(
-            tab,
-            text="Customize colors used when Theme Mode is Custom.",
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            tab,
-            text="Use hex values like #1a2b3c.",
-            foreground="gray",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
-
-        container = ttk.Frame(tab)
-        container.grid(row=2, column=0, sticky="nsew")
-        tab.rowconfigure(2, weight=1)
-        tab.columnconfigure(0, weight=1)
-
-        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        container.columnconfigure(0, weight=1)
-        container.rowconfigure(0, weight=1)
-        canvas.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-
-        inner = ttk.Frame(canvas)
-        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-        def _on_inner_configure(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def _on_canvas_configure(event):
-            canvas.itemconfigure(window_id, width=event.width)
-
-        inner.bind("<Configure>", _on_inner_configure)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        ttk.Label(inner, text="Color").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        ttk.Label(inner, text="Value").grid(row=0, column=1, sticky="w", pady=(0, 6))
-        ttk.Label(inner, text="Preview").grid(row=0, column=3, sticky="w", pady=(0, 6))
-
-        self._custom_theme_keys = self._get_custom_theme_keys()
-        row = 1
-        for key in self._custom_theme_keys:
-            label = THEME_KEY_LABELS.get(key, key)
-            value = self._get_custom_theme_value(key)
-
-            ttk.Label(inner, text=label).grid(row=row, column=0, sticky="w", pady=2)
-
-            var = tk.StringVar(value=value)
-            entry = ttk.Entry(inner, textvariable=var, width=12)
-            entry.grid(row=row, column=1, sticky="w", pady=2)
-
-            ttk.Button(
-                inner,
-                text="Pick",
-                command=lambda k=key: self._pick_custom_color(k),
-            ).grid(row=row, column=2, sticky="w", padx=(6, 0))
-
-            preview = tk.Label(inner, text=" ", width=2, relief="solid", borderwidth=1)
-            preview.grid(row=row, column=3, sticky="w", padx=(6, 0))
-
-            self._custom_theme_vars[key] = var
-            self._custom_theme_previews[key] = preview
-            self._custom_theme_last_valid[key] = value
-            self._update_custom_color_preview(key, value)
-
-            var.trace_add("write", lambda *_args, k=key: self._on_custom_color_change(k))
-            row += 1
-
-    def _create_python_tab(self):
-        """Create the Python runtime settings tab."""
+    def _create_dependencies_tab(self):
+        """Create the combined dependencies tab for Python, FFmpeg, and Tesseract."""
         from utils import is_embedded_python_available, PYTHON_EMBED_VERSION, get_embedded_python_dir
 
         tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(tab, text="Python")
+        self.notebook.add(tab, text="Dependencies")
+        tab.columnconfigure(0, weight=1)
 
         ttk.Label(
             tab,
-            text="Python Runtime for run_python Command",
-            font=("TkDefaultFont", 10, "bold")
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+            text="Optional dependencies can be downloaded automatically.",
+            foreground="gray",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
-        ttk.Label(
-            tab,
-            text="The run_python command requires Python to execute scripts.\n"
-                 "You can download an embedded Python runtime here.",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 15))
+        # --- Python Section ---
+        python_frame = ttk.LabelFrame(tab, text="Python Runtime", padding=10)
+        python_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        python_frame.columnconfigure(1, weight=1)
 
-        # Status display
-        ttk.Label(tab, text="Status:").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Label(python_frame, text="For run_python command", foreground="gray").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 5)
+        )
 
+        ttk.Label(python_frame, text="Status:").grid(row=1, column=0, sticky="w")
         self._python_status_var = tk.StringVar()
-        self._python_status_label = ttk.Label(tab, textvariable=self._python_status_var)
-        self._python_status_label.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=5)
-
-        # Version info
-        ttk.Label(tab, text="Version:").grid(row=3, column=0, sticky="w", pady=5)
-        ttk.Label(tab, text=f"Python {PYTHON_EMBED_VERSION}").grid(
-            row=3, column=1, sticky="w", padx=(10, 0), pady=5
-        )
-
-        # Location info
-        ttk.Label(tab, text="Location:").grid(row=4, column=0, sticky="w", pady=5)
-        location = get_embedded_python_dir()
-        ttk.Label(tab, text=location, foreground="gray").grid(
-            row=4, column=1, sticky="w", padx=(10, 0), pady=5
-        )
-
-        # Buttons (must be created before _update_python_status which references the button)
-        btn_frame = ttk.Frame(tab)
-        btn_frame.grid(row=5, column=0, columnspan=2, sticky="w", pady=(15, 0))
+        self._python_status_label = ttk.Label(python_frame, textvariable=self._python_status_var)
+        self._python_status_label.grid(row=1, column=1, sticky="w", padx=(10, 0))
 
         self._python_download_btn = ttk.Button(
-            btn_frame, text="Download Python", command=self._download_python
+            python_frame, text="Download", command=self._download_python, width=12
         )
-        self._python_download_btn.pack(side="left")
+        self._python_download_btn.grid(row=1, column=2, sticky="e", padx=(10, 0))
 
-        ttk.Label(
-            btn_frame, text="~11 MB download", foreground="gray"
-        ).pack(side="left", padx=(10, 0))
+        ttk.Label(python_frame, text=f"Version: {PYTHON_EMBED_VERSION}", foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(5, 0)
+        )
+        ttk.Label(python_frame, text="~11 MB", foreground="gray").grid(
+            row=2, column=2, sticky="e"
+        )
 
-        # Update status (after button is created)
+        # --- FFmpeg Section ---
+        ffmpeg_frame = ttk.LabelFrame(tab, text="FFmpeg", padding=10)
+        ffmpeg_frame.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ffmpeg_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(ffmpeg_frame, text="For camera capture", foreground="gray").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 5)
+        )
+
+        ttk.Label(ffmpeg_frame, text="Status:").grid(row=1, column=0, sticky="w")
+        self._ffmpeg_status_var = tk.StringVar()
+        self._ffmpeg_status_label = ttk.Label(ffmpeg_frame, textvariable=self._ffmpeg_status_var)
+        self._ffmpeg_status_label.grid(row=1, column=1, sticky="w", padx=(10, 0))
+
+        self._ffmpeg_download_btn = ttk.Button(
+            ffmpeg_frame, text="Download", command=self._download_ffmpeg, width=12
+        )
+        self._ffmpeg_download_btn.grid(row=1, column=2, sticky="e", padx=(10, 0))
+
+        ttk.Label(ffmpeg_frame, text=f"Version: {FFMPEG_VERSION}", foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(5, 0)
+        )
+        ttk.Label(ffmpeg_frame, text="~140 MB", foreground="gray").grid(
+            row=2, column=2, sticky="e"
+        )
+
+        # --- Tesseract Section ---
+        tesseract_frame = ttk.LabelFrame(tab, text="Tesseract OCR", padding=10)
+        tesseract_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        tesseract_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(tesseract_frame, text="For read_text command", foreground="gray").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 5)
+        )
+
+        ttk.Label(tesseract_frame, text="Status:").grid(row=1, column=0, sticky="w")
+        self._tesseract_status_var = tk.StringVar()
+        self._tesseract_status_label = ttk.Label(tesseract_frame, textvariable=self._tesseract_status_var)
+        self._tesseract_status_label.grid(row=1, column=1, sticky="w", padx=(10, 0))
+
+        self._tesseract_download_btn = ttk.Button(
+            tesseract_frame, text="Download", command=self._download_tesseract, width=12
+        )
+        self._tesseract_download_btn.grid(row=1, column=2, sticky="e", padx=(10, 0))
+
+        ttk.Label(tesseract_frame, text=f"Version: {TESSERACT_VERSION}", foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(5, 0)
+        )
+        ttk.Label(tesseract_frame, text="~48 MB", foreground="gray").grid(
+            row=2, column=2, sticky="e"
+        )
+
+        # Update all statuses
         self._update_python_status()
+        self._update_ffmpeg_status()
+        self._update_tesseract_status()
 
     def _update_python_status(self):
         """Update the Python status display."""
@@ -395,11 +443,11 @@ class SettingsDialog(tk.Toplevel):
         if is_embedded_python_available():
             self._python_status_var.set("Installed")
             self._python_status_label.configure(foreground="green")
-            self._python_download_btn.configure(text="Reinstall Python")
+            self._python_download_btn.configure(text="Reinstall")
         else:
             self._python_status_var.set("Not installed")
             self._python_status_label.configure(foreground="red")
-            self._python_download_btn.configure(text="Download Python")
+            self._python_download_btn.configure(text="Download")
 
     def _download_python(self):
         """Open the Python download dialog."""
@@ -407,6 +455,60 @@ class SettingsDialog(tk.Toplevel):
             self._update_python_status()
 
         dialog = PythonDownloadDialog(self, on_complete_callback=on_complete)
+        self.wait_window(dialog)
+
+    def _update_ffmpeg_status(self):
+        """Update the FFmpeg status display."""
+        if is_ffmpeg_available():
+            self._ffmpeg_status_var.set("Installed")
+            self._ffmpeg_status_label.configure(foreground="green")
+            self._ffmpeg_download_btn.configure(text="Reinstall")
+        else:
+            self._ffmpeg_status_var.set("Not installed")
+            self._ffmpeg_status_label.configure(foreground="red")
+            self._ffmpeg_download_btn.configure(text="Download")
+
+    def _download_ffmpeg(self):
+        """Open the FFmpeg download dialog."""
+        def on_complete(success):
+            self._update_ffmpeg_status()
+
+        dialog = DependencyDownloadDialog(
+            self,
+            dependency_name="FFmpeg",
+            download_fn=download_ffmpeg,
+            size_hint="~140 MB",
+            version=f"FFmpeg {FFMPEG_VERSION}",
+            location=get_ffmpeg_dir(),
+            on_complete_callback=on_complete
+        )
+        self.wait_window(dialog)
+
+    def _update_tesseract_status(self):
+        """Update the Tesseract status display."""
+        if is_tesseract_available():
+            self._tesseract_status_var.set("Installed")
+            self._tesseract_status_label.configure(foreground="green")
+            self._tesseract_download_btn.configure(text="Reinstall")
+        else:
+            self._tesseract_status_var.set("Not installed")
+            self._tesseract_status_label.configure(foreground="red")
+            self._tesseract_download_btn.configure(text="Download")
+
+    def _download_tesseract(self):
+        """Open the Tesseract download dialog."""
+        def on_complete(success):
+            self._update_tesseract_status()
+
+        dialog = DependencyDownloadDialog(
+            self,
+            dependency_name="Tesseract OCR",
+            download_fn=download_tesseract,
+            size_hint="~48 MB",
+            version=f"Tesseract {TESSERACT_VERSION}",
+            location=get_tesseract_dir(),
+            on_complete_callback=on_complete
+        )
         self.wait_window(dialog)
 
     def _get_custom_theme_keys(self):
@@ -1319,6 +1421,153 @@ class PythonDownloadDialog(tk.Toplevel):
 
     def _update_progress(self, percent, status):
         """Update progress bar and status (called on main thread)."""
+        self.progress_var.set(percent)
+        self.status_var.set(status)
+
+    def _download_complete(self, success, message):
+        """Handle download completion."""
+        self.result = success
+
+        if success:
+            self.status_var.set(message)
+            self.progress_var.set(100)
+            messagebox.showinfo("Download Complete", message, parent=self)
+            self._close()
+        else:
+            self.status_var.set(f"Error: {message}")
+            self.download_btn.state(["!disabled"])
+            self.download_btn.configure(text="Retry")
+            messagebox.showerror("Download Failed", message, parent=self)
+
+    def _cancel(self):
+        """Cancel download and close dialog."""
+        self._cancelled = True
+        self.result = False
+        self._close()
+
+    def _close(self):
+        """Close the dialog and call callback."""
+        if self.on_complete_callback:
+            self.on_complete_callback(self.result)
+        self.destroy()
+
+
+class DependencyDownloadDialog(tk.Toplevel):
+    """Generic dialog for downloading dependencies with progress bar."""
+
+    def __init__(self, parent, dependency_name: str, download_fn, size_hint: str,
+                 version: str = "", location: str = "", on_complete_callback=None):
+        """
+        Args:
+            parent: Parent window
+            dependency_name: Name to display (e.g., "FFmpeg", "Tesseract")
+            download_fn: Function to call for download, takes progress_callback
+            size_hint: Size hint to display (e.g., "~140 MB")
+            version: Version string to display
+            location: Installation location to display
+            on_complete_callback: Called with (success: bool) when done
+        """
+        super().__init__(parent)
+        self.parent = parent
+        self.dependency_name = dependency_name
+        self.download_fn = download_fn
+        self.on_complete_callback = on_complete_callback
+        self.result = False
+        self._download_thread = None
+        self._cancelled = False
+
+        self.title(f"Download {dependency_name}")
+        self.transient(parent)
+        self.grab_set()
+        self.resizable(False, False)
+
+        # Main container
+        main = ttk.Frame(self, padding=20)
+        main.grid(row=0, column=0, sticky="nsew")
+
+        # Info label
+        info_text = (
+            f"{dependency_name} is required but not installed.\n\n"
+            f"Click 'Download' to install {dependency_name} ({size_hint}).\n"
+            f"This is a one-time download."
+        )
+        ttk.Label(main, text=info_text, justify="left").grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 15)
+        )
+
+        # Version info
+        row = 1
+        if version:
+            ttk.Label(main, text="Version:").grid(row=row, column=0, sticky="w", pady=2)
+            ttk.Label(main, text=version).grid(row=row, column=1, sticky="w", padx=(10, 0), pady=2)
+            row += 1
+
+        # Location info
+        if location:
+            ttk.Label(main, text="Location:").grid(row=row, column=0, sticky="w", pady=2)
+            ttk.Label(main, text=location, foreground="gray", wraplength=300).grid(
+                row=row, column=1, sticky="w", padx=(10, 0), pady=2
+            )
+            row += 1
+
+        # Progress bar
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(
+            main, variable=self.progress_var, maximum=100, length=350
+        )
+        self.progress_bar.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(15, 5))
+        row += 1
+
+        # Status label
+        self.status_var = tk.StringVar(value="Ready to download")
+        ttk.Label(main, textvariable=self.status_var, foreground="gray").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 15)
+        )
+        row += 1
+
+        # Buttons
+        btn_frame = ttk.Frame(main)
+        btn_frame.grid(row=row, column=0, columnspan=2, sticky="e")
+
+        self.cancel_btn = ttk.Button(btn_frame, text="Cancel", command=self._cancel)
+        self.cancel_btn.pack(side="right", padx=(6, 0))
+
+        self.download_btn = ttk.Button(btn_frame, text="Download", command=self._start_download)
+        self.download_btn.pack(side="right")
+
+        # Position dialog
+        self.update_idletasks()
+        x = parent.winfo_rootx() + 100
+        y = parent.winfo_rooty() + 100
+        self.geometry(f"+{x}+{y}")
+
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _start_download(self):
+        """Start the download in a background thread."""
+        import threading
+
+        self.download_btn.state(["disabled"])
+        self.cancel_btn.configure(text="Cancel")
+        self._cancelled = False
+
+        def download_task():
+            def progress_callback(percent, status):
+                if self._cancelled:
+                    return
+                self.after(0, lambda: self._update_progress(percent, status))
+
+            success, message = self.download_fn(progress_callback)
+
+            if not self._cancelled:
+                self.after(0, lambda: self._download_complete(success, message))
+
+        self._download_thread = threading.Thread(target=download_task, daemon=True)
+        self._download_thread.start()
+
+    def _update_progress(self, percent, status):
+        """Update progress bar and status."""
         self.progress_var.set(percent)
         self.status_var.set(status)
 
