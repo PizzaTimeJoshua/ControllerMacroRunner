@@ -959,6 +959,8 @@ class App:
         self.script_text.bind("<Double-1>", self._on_script_double_click)
         self.script_text.bind("<Button-1>", self._on_script_click)
         self.script_text.bind("<Delete>", self._on_script_delete_key)
+        self.script_text.bind("<Control-c>", self._on_script_copy_key)
+        self.script_text.bind("<Control-v>", self._on_script_paste_key)
 
         # Track selected line for editing
         self.selected_script_line = None
@@ -1425,6 +1427,14 @@ class App:
 
     def _on_script_delete_key(self, event):
         self.delete_command()
+        return "break"
+
+    def _on_script_copy_key(self, event):
+        self.copy_command()
+        return "break"
+
+    def _on_script_paste_key(self, event):
+        self.paste_command()
         return "break"
 
     def _select_script_line(self, idx):
