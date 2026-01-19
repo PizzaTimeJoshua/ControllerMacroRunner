@@ -92,6 +92,7 @@ THEME_COLORS = {
         "comment_fg": "#228B22",
         "variable_fg": "#0066CC",
         "math_fg": "#b58900",
+        "filepath_fg": "#CC0000",
         "selected_bg": "#e0e0e0",
     },
     "dark": {
@@ -118,6 +119,7 @@ THEME_COLORS = {
         "comment_fg": "#7bd88f",
         "variable_fg": "#7fb2ff",
         "math_fg": "#f2c374",
+        "filepath_fg": "#ff6b6b",
         "selected_bg": "#24303d",
     },
 }
@@ -615,6 +617,7 @@ class App:
         self.script_text.tag_configure("comment", foreground=colors["comment_fg"])
         self.script_text.tag_configure("variable", foreground=colors["variable_fg"])
         self.script_text.tag_configure("math", foreground=colors["math_fg"])
+        self.script_text.tag_configure("filepath", foreground=colors["filepath_fg"])
         self.script_text.tag_configure("selected", background=colors["selected_bg"])
 
     def _stop_theme_poll(self):
@@ -953,8 +956,10 @@ class App:
         self.script_text.tag_configure("comment", foreground="#228B22")  # Forest green
         self.script_text.tag_configure("variable", foreground="#0066CC")  # Blue
         self.script_text.tag_configure("math", foreground="#b58900")  # Yellow
+        self.script_text.tag_configure("filepath", foreground="#CC0000")  # Red
         self.script_text.tag_configure("selected", background="#e0e0e0")  # Selected line
         self.script_text.tag_raise("variable", "math")
+        self.script_text.tag_raise("filepath", "variable")
         self.script_text.bind("<Button-3>", self._on_script_right_click)
         self.script_text.bind("<Double-1>", self._on_script_double_click)
         self.script_text.bind("<Button-1>", self._on_script_click)
@@ -2570,6 +2575,26 @@ class App:
                     var_start = f"{line_num}.{content_start_col + match.start()}"
                     var_end = f"{line_num}.{content_start_col + match.end()}"
                     self.script_text.tag_add("variable", var_start, var_end)
+
+                # Highlight file paths for run_python and discord_status commands
+                if cmd == "run_python":
+                    filepath = c.get("file", "")
+                    if filepath:
+                        haystack = line_text[content_start_col:]
+                        idx = haystack.find(filepath)
+                        if idx >= 0:
+                            fp_start = f"{line_num}.{content_start_col + idx}"
+                            fp_end = f"{line_num}.{content_start_col + idx + len(filepath)}"
+                            self.script_text.tag_add("filepath", fp_start, fp_end)
+                elif cmd == "discord_status":
+                    image_path = c.get("image", "")
+                    if image_path:
+                        haystack = line_text[content_start_col:]
+                        idx = haystack.find(image_path)
+                        if idx >= 0:
+                            fp_start = f"{line_num}.{content_start_col + idx}"
+                            fp_end = f"{line_num}.{content_start_col + idx + len(image_path)}"
+                            self.script_text.tag_add("filepath", fp_start, fp_end)
 
             # Increase indent AFTER printing for opening blocks
             if indent_on and cmd in ("if", "while"):

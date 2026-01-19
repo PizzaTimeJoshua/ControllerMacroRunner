@@ -705,6 +705,7 @@ DEFAULT_SETTINGS = {
         "comment_fg": "#7bd88f",
         "variable_fg": "#8cc9a4",
         "math_fg": "#f2c374",
+        "filepath_fg": "#ff6b6b",
         "selected_bg": "#1f2b24",
     },
     "confirm_delete": True,

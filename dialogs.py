@@ -42,6 +42,7 @@ THEME_KEY_LABELS = {
     "comment_fg": "Comment Text",
     "variable_fg": "Variable Text",
     "math_fg": "Math Text",
+    "filepath_fg": "File Path Text",
     "selected_bg": "Selected Line",
 }
 

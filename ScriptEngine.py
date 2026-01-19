@@ -1082,7 +1082,7 @@ class ScriptEngine:
             if ping:
                 flags.append("ping")
             if image:
-                flags.append("image")
+                flags.append(f"image={image}")
             flag_str = f" ({', '.join(flags)})" if flags else ""
             return f"DiscordStatus {msg!r}{flag_str}"
         def fmt_save_frame(c):
