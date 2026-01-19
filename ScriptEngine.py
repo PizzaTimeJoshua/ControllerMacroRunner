@@ -284,8 +284,55 @@ class CommandSpec:
 # ----------------------------
 
 def resolve_value(ctx, v):
+    """
+    Resolve a value that may be a variable reference.
+    Supports:
+      - Simple variable: "$varname" -> ctx["vars"]["varname"]
+      - Indexed access: "$list[0]" or "$list[0][1]" for nested access
+    """
     if isinstance(v, str) and v.startswith("$"):
-        return ctx["vars"].get(v[1:], None)
+        var_str = v[1:]  # Remove leading $
+
+        # Check for index access: varname[index] or varname[i][j]...
+        bracket_pos = var_str.find("[")
+        if bracket_pos == -1:
+            # Simple variable lookup
+            return ctx["vars"].get(var_str, None)
+
+        # Extract variable name and indices
+        var_name = var_str[:bracket_pos]
+        indices_str = var_str[bracket_pos:]
+
+        # Get the base variable value
+        value = ctx["vars"].get(var_name, None)
+        if value is None:
+            return None
+
+        # Parse and apply indices: [0][1][2] etc.
+        import re
+        index_pattern = re.compile(r'\[([^\]]+)\]')
+        indices = index_pattern.findall(indices_str)
+
+        for idx_str in indices:
+            idx_str = idx_str.strip()
+            # Check if the index itself is a variable reference
+            if idx_str.startswith("$"):
+                idx = resolve_value(ctx, idx_str)
+            else:
+                # Try to parse as integer, otherwise use as string key
+                try:
+                    idx = int(idx_str)
+                except ValueError:
+                    # Could be a string key for dict access
+                    idx = idx_str.strip('"\'')
+
+            # Apply the index
+            try:
+                value = value[idx]
+            except (IndexError, KeyError, TypeError):
+                return None
+
+        return value
     return v
 
 def resolve_vars_deep(ctx, obj):
@@ -707,12 +754,39 @@ if __name__ == "__main__":
 
 _EXPR_VAR_RE = re.compile(r"\$([A-Za-z_]\w*)")
 
+# Safe list/dict methods that don't require external state
+_SAFE_LIST_METHODS = frozenset({
+    # Non-mutating methods (return new values)
+    "copy", "count", "index",
+    # Mutating methods (safe because we operate on copies)
+    "append", "clear", "extend", "insert", "pop", "remove", "reverse", "sort",
+})
+
+_SAFE_DICT_METHODS = frozenset({
+    "copy", "get", "items", "keys", "values",
+    "pop", "popitem", "clear", "update", "setdefault",
+})
+
+_SAFE_STR_METHODS = frozenset({
+    "lower", "upper", "strip", "lstrip", "rstrip", "split", "join",
+    "replace", "find", "rfind", "index", "rindex", "count",
+    "startswith", "endswith", "isdigit", "isalpha", "isalnum",
+    "capitalize", "title", "swapcase", "center", "ljust", "rjust",
+    "zfill", "partition", "rpartition", "format",
+})
+
 def eval_expr(ctx, expr: str):
     """
     Evaluate a simple math expression safely.
     Variables are referenced as $name inside the expression.
-    Example: "9/$value*1000"
+    Supports:
+      - Math operations: "9/$value*1000"
+      - Index access: "$list[0]" or "$dict['key']"
+      - List methods: "$list.pop()" (operates on a copy, original unchanged)
+      - String methods: "$str.upper()"
     """
+    import copy
+
     if not isinstance(expr, str):
         return expr
 
@@ -721,14 +795,21 @@ def eval_expr(ctx, expr: str):
     py_expr = _EXPR_VAR_RE.sub(r"\1", expr)
 
     # Build locals for used vars (missing vars become error)
+    # Use deep copies for mutable types to prevent mutation of originals
     local_vars = {}
     for name in used:
         if name not in ctx["vars"]:
             messagebox.showerror("Variable Error", f"Expression references undefined variable: ${name}")
             return
-        local_vars[name] = ctx["vars"][name]
+        val = ctx["vars"][name]
+        # Deep copy mutable types to prevent mutation
+        if isinstance(val, (list, dict)):
+            local_vars[name] = copy.deepcopy(val)
+        else:
+            local_vars[name] = val
 
-    allowed = {
+    # Built-in functions allowed in expressions
+    allowed_funcs = {
         # math funcs
         "abs": abs,
         "round": round,
@@ -736,18 +817,50 @@ def eval_expr(ctx, expr: str):
         "max": max,
         "int": int,
         "float": float,
+        "len": len,
+        "str": str,
+        "list": list,
+        "dict": dict,
+        "tuple": tuple,
+        "sorted": sorted,
+        "reversed": reversed,
+        "enumerate": enumerate,
+        "zip": zip,
+        "range": range,
+        "sum": sum,
+        "any": any,
+        "all": all,
         # math module
         "math": math,
         "pi": math.pi,
         "e": math.e,
     }
+    allowed = dict(allowed_funcs)
     allowed.update(local_vars)
 
     node = ast.parse(py_expr, mode="eval")
 
+    def is_safe_method_call(call_node):
+        """Check if a method call is on a safe method of a known type."""
+        if not isinstance(call_node.func, ast.Attribute):
+            return False
+        method_name = call_node.func.attr
+        # Allow safe list/dict/str methods
+        return method_name in _SAFE_LIST_METHODS | _SAFE_DICT_METHODS | _SAFE_STR_METHODS
+
+    def is_var_or_subscript(node):
+        """Check if node is a variable name or subscript of a variable."""
+        if isinstance(node, ast.Name):
+            return node.id in local_vars
+        if isinstance(node, ast.Subscript):
+            return is_var_or_subscript(node.value)
+        if isinstance(node, ast.Attribute):
+            return is_var_or_subscript(node.value)
+        return False
+
     # Validate AST: allow only safe nodes
     for n in ast.walk(node):
-        if isinstance(n, (ast.Expression, ast.Load, ast.Constant, ast.Name)):
+        if isinstance(n, (ast.Expression, ast.Load, ast.Store, ast.Constant, ast.Name)):
             continue
         if isinstance(n, (ast.BinOp, ast.UnaryOp)):
             continue
@@ -755,29 +868,59 @@ def eval_expr(ctx, expr: str):
             continue
         if isinstance(n, (ast.UAdd, ast.USub)):
             continue
+        # Allow subscript for index access
+        if isinstance(n, ast.Subscript):
+            continue
+        # Allow slice for slicing operations
+        if isinstance(n, ast.Slice):
+            continue
+        # Allow list/tuple/dict literals
+        if isinstance(n, (ast.List, ast.Tuple, ast.Dict)):
+            continue
+        # Allow comparisons for expressions like "x if a > b else y"
+        if isinstance(n, (ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn)):
+            continue
+        # Allow ternary expressions
+        if isinstance(n, ast.IfExp):
+            continue
+        # Allow boolean operations
+        if isinstance(n, (ast.BoolOp, ast.And, ast.Or, ast.Not)):
+            continue
         if isinstance(n, ast.Call):
-            # Allow calls only to whitelisted functions or math.<fn>
+            # Allow calls to whitelisted functions
             if isinstance(n.func, ast.Name):
-                if n.func.id not in allowed:
+                if n.func.id not in allowed_funcs:
                     messagebox.showerror("Expression Error", f"Function not allowed: {n.func.id}")
                     return
             elif isinstance(n.func, ast.Attribute):
-                # allow math.xxx only
-                if not (isinstance(n.func.value, ast.Name) and n.func.value.id == "math"):
-                    messagebox.showerror("Expression Error", "Only math.<fn>(...) calls are allowed")
+                # Allow math.xxx
+                if isinstance(n.func.value, ast.Name) and n.func.value.id == "math":
+                    pass
+                # Allow safe methods on variables (list.pop(), str.upper(), etc.)
+                elif is_var_or_subscript(n.func.value) and is_safe_method_call(n):
+                    pass
+                else:
+                    method_name = n.func.attr
+                    if method_name not in _SAFE_LIST_METHODS | _SAFE_DICT_METHODS | _SAFE_STR_METHODS:
+                        messagebox.showerror("Expression Error", f"Method not allowed: {method_name}")
+                    else:
+                        messagebox.showerror("Expression Error", "Method calls only allowed on variables")
                     return
             else:
                 messagebox.showerror("Expression Error", "Invalid function call")
                 return
             continue
         if isinstance(n, ast.Attribute):
-            # allow math.<attr> only
-            if not (isinstance(n.value, ast.Name) and n.value.id == "math"):
-                messagebox.showerror("Expression Error", "Only math.<attr> is allowed")
-                return
-            continue
+            # Allow math.<attr>
+            if isinstance(n.value, ast.Name) and n.value.id == "math":
+                continue
+            # Allow attribute access on variables for method calls
+            if is_var_or_subscript(n.value):
+                continue
+            messagebox.showerror("Expression Error", f"Attribute access not allowed: {n.attr}")
+            return
 
-        # Block everything else (comparisons, subscripts, lambdas, etc.)
+        # Block everything else (lambdas, etc.)
         messagebox.showerror("Expression Error", f"Disallowed expression element: {type(n).__name__}")
         return
 
@@ -789,13 +932,14 @@ def eval_expr(ctx, expr: str):
 
 class ScriptEngine:
     def __init__(self, serial_ctrl, get_frame_fn, status_cb=None, on_ip_update=None, on_tick=None,
-                 settings_getter=None, on_python_needed=None):
+                 settings_getter=None, on_python_needed=None, on_error=None):
         self.serial = serial_ctrl
         self.get_frame = get_frame_fn
         self.status_cb = status_cb or (lambda s: None)
         self.on_ip_update = on_ip_update or (lambda ip: None)
         self.on_tick = on_tick or (lambda: None)
         self.on_python_needed = on_python_needed or (lambda: None)
+        self.on_error = on_error or (lambda title, msg: None)
 
         self.vars = {}
         self.commands = []
@@ -1007,7 +1151,7 @@ class ScriptEngine:
         except Exception as e:
             self._reset_backend_neutral()
             self.status_cb(f"Script error: {e}")
-            raise(e)
+            self.on_error("Script Error", str(e))
         finally:
             self.running = False
             self.on_ip_update(-1)

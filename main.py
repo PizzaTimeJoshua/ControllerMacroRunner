@@ -252,6 +252,7 @@ class App:
             on_ip_update=self.on_ip_update,
             on_tick=self.on_engine_tick,
             on_python_needed=self.on_python_needed,
+            on_error=self.on_script_error,
         )
 
         # Output backend selection
@@ -688,6 +689,14 @@ class App:
                     self.set_status("Python installed. You can now re-run the script.")
 
         # Schedule on main thread since this may be called from engine thread
+        self.root.after(0, show_dialog)
+
+    # ---- script error handler
+    def on_script_error(self, title, message):
+        """Called when script execution encounters an error. Shows error dialog from main thread."""
+        def show_dialog():
+            messagebox.showerror(title, message, parent=self.root)
+        # Schedule on main thread since this is called from engine thread
         self.root.after(0, show_dialog)
 
     # ---- frame access
