@@ -104,6 +104,7 @@ class SettingsDialog(tk.Toplevel):
         self._create_appearance_tab()
         self._create_editing_tab()
         self._create_custom_theme_tab()
+        self._create_python_tab()
 
         # Bottom buttons
         btn_frame = ttk.Frame(main)
@@ -331,6 +332,82 @@ class SettingsDialog(tk.Toplevel):
 
             var.trace_add("write", lambda *_args, k=key: self._on_custom_color_change(k))
             row += 1
+
+    def _create_python_tab(self):
+        """Create the Python runtime settings tab."""
+        from utils import is_embedded_python_available, PYTHON_EMBED_VERSION, get_embedded_python_dir
+
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Python")
+
+        ttk.Label(
+            tab,
+            text="Python Runtime for run_python Command",
+            font=("TkDefaultFont", 10, "bold")
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        ttk.Label(
+            tab,
+            text="The run_python command requires Python to execute scripts.\n"
+                 "You can download an embedded Python runtime here.",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 15))
+
+        # Status display
+        ttk.Label(tab, text="Status:").grid(row=2, column=0, sticky="w", pady=5)
+
+        self._python_status_var = tk.StringVar()
+        self._python_status_label = ttk.Label(tab, textvariable=self._python_status_var)
+        self._python_status_label.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=5)
+
+        # Version info
+        ttk.Label(tab, text="Version:").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Label(tab, text=f"Python {PYTHON_EMBED_VERSION}").grid(
+            row=3, column=1, sticky="w", padx=(10, 0), pady=5
+        )
+
+        # Location info
+        ttk.Label(tab, text="Location:").grid(row=4, column=0, sticky="w", pady=5)
+        location = get_embedded_python_dir()
+        ttk.Label(tab, text=location, foreground="gray").grid(
+            row=4, column=1, sticky="w", padx=(10, 0), pady=5
+        )
+
+        # Buttons (must be created before _update_python_status which references the button)
+        btn_frame = ttk.Frame(tab)
+        btn_frame.grid(row=5, column=0, columnspan=2, sticky="w", pady=(15, 0))
+
+        self._python_download_btn = ttk.Button(
+            btn_frame, text="Download Python", command=self._download_python
+        )
+        self._python_download_btn.pack(side="left")
+
+        ttk.Label(
+            btn_frame, text="~11 MB download", foreground="gray"
+        ).pack(side="left", padx=(10, 0))
+
+        # Update status (after button is created)
+        self._update_python_status()
+
+    def _update_python_status(self):
+        """Update the Python status display."""
+        from utils import is_embedded_python_available
+
+        if is_embedded_python_available():
+            self._python_status_var.set("Installed")
+            self._python_status_label.configure(foreground="green")
+            self._python_download_btn.configure(text="Reinstall Python")
+        else:
+            self._python_status_var.set("Not installed")
+            self._python_status_label.configure(foreground="red")
+            self._python_download_btn.configure(text="Download Python")
+
+    def _download_python(self):
+        """Open the Python download dialog."""
+        def on_complete(success):
+            self._update_python_status()
+
+        dialog = PythonDownloadDialog(self, on_complete_callback=on_complete)
+        self.wait_window(dialog)
 
     def _get_custom_theme_keys(self):
         palette = self.theme_colors.get("dark") or self.theme_colors.get("light") or self.custom_theme
@@ -1150,3 +1227,124 @@ class CommandEditorDialog(tk.Toplevel):
         # Re-grab focus
         self.grab_set()
         self.focus_set()
+
+
+class PythonDownloadDialog(tk.Toplevel):
+    """Dialog for downloading embedded Python with progress bar."""
+
+    def __init__(self, parent, on_complete_callback=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.on_complete_callback = on_complete_callback
+        self.result = False
+        self._download_thread = None
+        self._cancelled = False
+
+        self.title("Download Python Runtime")
+        self.transient(parent)
+        self.grab_set()
+        self.resizable(False, False)
+
+        # Main container
+        main = ttk.Frame(self, padding=20)
+        main.grid(row=0, column=0, sticky="nsew")
+
+        # Info label
+        from utils import PYTHON_EMBED_VERSION
+        info_text = (
+            f"The run_python command requires Python to execute scripts.\n\n"
+            f"Click 'Download' to install Python {PYTHON_EMBED_VERSION} (~11 MB).\n"
+            f"This is a one-time download."
+        )
+        ttk.Label(main, text=info_text, justify="left").grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 15)
+        )
+
+        # Progress bar
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(
+            main, variable=self.progress_var, maximum=100, length=350
+        )
+        self.progress_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+
+        # Status label
+        self.status_var = tk.StringVar(value="Ready to download")
+        ttk.Label(main, textvariable=self.status_var, foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(0, 15)
+        )
+
+        # Buttons
+        btn_frame = ttk.Frame(main)
+        btn_frame.grid(row=3, column=0, columnspan=2, sticky="e")
+
+        self.cancel_btn = ttk.Button(btn_frame, text="Cancel", command=self._cancel)
+        self.cancel_btn.pack(side="right", padx=(6, 0))
+
+        self.download_btn = ttk.Button(btn_frame, text="Download", command=self._start_download)
+        self.download_btn.pack(side="right")
+
+        # Position dialog
+        self.update_idletasks()
+        x = parent.winfo_rootx() + 100
+        y = parent.winfo_rooty() + 100
+        self.geometry(f"+{x}+{y}")
+
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _start_download(self):
+        """Start the download in a background thread."""
+        import threading
+
+        self.download_btn.state(["disabled"])
+        self.cancel_btn.configure(text="Cancel")
+        self._cancelled = False
+
+        def download_task():
+            from utils import download_embedded_python
+
+            def progress_callback(percent, status):
+                if self._cancelled:
+                    return
+                # Schedule UI update on main thread
+                self.after(0, lambda: self._update_progress(percent, status))
+
+            success, message = download_embedded_python(progress_callback)
+
+            if not self._cancelled:
+                self.after(0, lambda: self._download_complete(success, message))
+
+        self._download_thread = threading.Thread(target=download_task, daemon=True)
+        self._download_thread.start()
+
+    def _update_progress(self, percent, status):
+        """Update progress bar and status (called on main thread)."""
+        self.progress_var.set(percent)
+        self.status_var.set(status)
+
+    def _download_complete(self, success, message):
+        """Handle download completion."""
+        self.result = success
+
+        if success:
+            self.status_var.set(message)
+            self.progress_var.set(100)
+            messagebox.showinfo("Download Complete", message, parent=self)
+            self._close()
+        else:
+            self.status_var.set(f"Error: {message}")
+            self.download_btn.state(["!disabled"])
+            self.download_btn.configure(text="Retry")
+            messagebox.showerror("Download Failed", message, parent=self)
+
+    def _cancel(self):
+        """Cancel download and close dialog."""
+        self._cancelled = True
+        self.result = False
+        self._close()
+
+    def _close(self):
+        """Close the dialog and call callback."""
+        if self.on_complete_callback:
+            self.on_complete_callback(self.result)
+        self.destroy()

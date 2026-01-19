@@ -24,7 +24,7 @@ import urllib.request
 import urllib.error
 import uuid
 from tkinter import messagebox
-from utils import exe_dir_path
+from utils import exe_dir_path, python_path, is_python_available
 
 # Optional OCR support via pytesseract
 try:
@@ -44,6 +44,16 @@ try:
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
+
+
+# ----------------------------
+# Custom Exceptions
+# ----------------------------
+
+class PythonNotAvailableError(Exception):
+    """Raised when run_python is called but no Python interpreter is available."""
+    pass
+
 
 # ----------------------------
 # CIE76 Color Difference (Delta E) Functions
@@ -677,8 +687,11 @@ if __name__ == "__main__":
     # args must be JSON-serializable
     args_json = json.dumps(args, ensure_ascii=False)
 
+    # Use embedded Python if available, otherwise fall back to sys.executable
+    python_exe = python_path()
+
     cp = subprocess.run(
-        [sys.executable, "-c", runner, script_path, args_json],
+        [python_exe, "-c", runner, script_path, args_json],
         capture_output=True,
         text=True,
         timeout=timeout_s
@@ -776,12 +789,13 @@ def eval_expr(ctx, expr: str):
 
 class ScriptEngine:
     def __init__(self, serial_ctrl, get_frame_fn, status_cb=None, on_ip_update=None, on_tick=None,
-                 settings_getter=None):
+                 settings_getter=None, on_python_needed=None):
         self.serial = serial_ctrl
         self.get_frame = get_frame_fn
         self.status_cb = status_cb or (lambda s: None)
         self.on_ip_update = on_ip_update or (lambda ip: None)
         self.on_tick = on_tick or (lambda: None)
+        self.on_python_needed = on_python_needed or (lambda: None)
 
         self.vars = {}
         self.commands = []
@@ -968,6 +982,7 @@ class ScriptEngine:
             "ip": self.ip,
             "get_backend": self.get_backend,
             "get_settings": self.get_settings,
+            "on_python_needed": self.on_python_needed,
         }
 
         try:
@@ -1473,6 +1488,13 @@ class ScriptEngine:
             pass
 
         def cmd_run_python(ctx, c):
+            # Check if Python is available (important for frozen exe builds)
+            if not is_python_available():
+                # Stop the script and notify that Python is needed
+                ctx["stop"].set()
+                ctx["on_python_needed"]()
+                return
+
             file_name = str(c["file"]).strip()
             if not file_name:
                 messagebox.showerror("error", "run_python: file is empty")

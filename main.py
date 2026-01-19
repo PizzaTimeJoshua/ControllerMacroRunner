@@ -40,6 +40,7 @@ from utils import (
     get_default_keybindings,
     normalize_theme_setting,
     resolve_theme_mode,
+    is_python_available,
 )
 from camera import (
     list_dshow_video_devices,
@@ -53,7 +54,7 @@ from audio import (
     pyaudio,
     list_audio_devices,
 )
-from dialogs import CommandEditorDialog, SettingsDialog
+from dialogs import CommandEditorDialog, SettingsDialog, PythonDownloadDialog
 
 # Windows-specific flag to hide console window for subprocesses
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -240,6 +241,7 @@ class App:
             status_cb=self.set_status,
             on_ip_update=self.on_ip_update,
             on_tick=self.on_engine_tick,
+            on_python_needed=self.on_python_needed,
         )
 
         # Output backend selection
@@ -576,6 +578,26 @@ class App:
     # ---- engine tick (live vars)
     def on_engine_tick(self):
         self.root.after(0, self.refresh_vars_view)
+
+    # ---- python download prompt
+    def on_python_needed(self):
+        """Called when run_python command needs Python but it's not available."""
+        def show_dialog():
+            result = messagebox.askyesno(
+                "Python Required",
+                "The run_python command requires Python to execute scripts.\n\n"
+                "Python is not currently installed. Would you like to download it now?\n\n"
+                "(This is a one-time ~11 MB download)",
+                parent=self.root
+            )
+            if result:
+                dialog = PythonDownloadDialog(self.root)
+                self.root.wait_window(dialog)
+                if dialog.result:
+                    self.set_status("Python installed. You can now re-run the script.")
+
+        # Schedule on main thread since this may be called from engine thread
+        self.root.after(0, show_dialog)
 
     # ---- frame access
     def get_latest_frame(self):
@@ -2482,6 +2504,29 @@ class App:
         if self.kb_camera_focused:
             self.kb_camera_focused = False
         self._release_all_keyboard_buttons()
+
+        # Check if script contains run_python commands and Python is available
+        if not is_python_available():
+            has_run_python = any(
+                c.get("cmd") == "run_python"
+                for c in self.engine.commands
+                if isinstance(c, dict)
+            )
+            if has_run_python:
+                result = messagebox.askyesno(
+                    "Python Required",
+                    "This script contains run_python commands but Python is not installed.\n\n"
+                    "Would you like to download Python now?\n\n"
+                    "(This is a one-time ~11 MB download)",
+                    parent=self.root
+                )
+                if result:
+                    dialog = PythonDownloadDialog(self.root)
+                    self.root.wait_window(dialog)
+                    if not dialog.result:
+                        return  # Download failed or cancelled, don't run script
+                else:
+                    return  # User declined, don't run script
 
         try:
             self.engine.rebuild_indexes(strict=True)  # strict only when running
