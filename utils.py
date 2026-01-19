@@ -78,6 +78,9 @@ TESSERACT_URL = "https://github.com/tesseract-ocr/tesseract/releases/download/5.
 TESSERACT_DIR = "bin/Tesseract-OCR"
 TESSERACT_VERSION = "5.5.0"
 
+# Tessdata language files (eng.traineddata required for OCR)
+TESSDATA_ENG_URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
+
 
 # ----------------------------
 # Embedded Python Support
@@ -581,6 +584,33 @@ def download_tesseract(progress_callback=None) -> tuple[bool, str]:
                     except Exception:
                         pass
 
+            # Download eng.traineddata for OCR
+            if progress_callback:
+                progress_callback(90, "Downloading English language data...")
+
+            tessdata_dir = os.path.join(target_dir, "tessdata")
+            os.makedirs(tessdata_dir, exist_ok=True)
+            eng_traineddata_path = os.path.join(tessdata_dir, "eng.traineddata")
+
+            lang_data_success = False
+            # Only download if not already present (installer might include it)
+            if not os.path.exists(eng_traineddata_path):
+                try:
+                    req = urllib.request.Request(
+                        TESSDATA_ENG_URL,
+                        headers={"User-Agent": "ControllerMacroRunner/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=60) as response:
+                        with open(eng_traineddata_path, "wb") as out_file:
+                            out_file.write(response.read())
+                    lang_data_success = True
+                except Exception:
+                    # Don't fail the whole installation if language data fails
+                    # User can still manually add it later
+                    pass
+            else:
+                lang_data_success = True
+
             if progress_callback:
                 progress_callback(100, "Done!")
 
@@ -589,7 +619,10 @@ def download_tesseract(progress_callback=None) -> tuple[bool, str]:
             if not os.path.exists(tesseract_exe):
                 return False, "Extraction failed: tesseract.exe not found"
 
-            return True, f"Tesseract {TESSERACT_VERSION} installed successfully"
+            if lang_data_success:
+                return True, f"Tesseract {TESSERACT_VERSION} installed successfully"
+            else:
+                return True, f"Tesseract {TESSERACT_VERSION} installed (warning: eng.traineddata download failed)"
 
         finally:
             if os.path.exists(tmp_path):
