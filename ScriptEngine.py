@@ -1345,6 +1345,17 @@ class ScriptEngine:
             out = c.get("out", "random_value")
             return f"Random float [0.0, 1.0) -> ${out}"
 
+        def fmt_export_json(c):
+            vars_list = c.get("vars", [])
+            filename = c.get("filename", "export.json")
+            if vars_list:
+                return f"ExportJSON {vars_list!r} -> {filename!r}"
+            return f"ExportJSON (all vars) -> {filename!r}"
+
+        def fmt_import_json(c):
+            filename = c.get("filename", "import.json")
+            return f"ImportJSON from {filename!r}"
+
         # ---- execution fns
         def cmd_wait(ctx, c):
             ms_raw = c.get("ms", 0)
@@ -2123,6 +2134,79 @@ class ScriptEngine:
             selected = random.random()
             ctx["vars"][out] = selected
 
+        def cmd_export_json(ctx, c):
+            """
+            Export specified variables to a JSON file.
+            If vars list is empty or not specified, exports all variables.
+            """
+            vars_to_export = c.get("vars", [])
+            filename = resolve_value(ctx, c.get("filename", "export.json"))
+
+            # If vars_to_export is a string (variable reference), resolve it
+            if isinstance(vars_to_export, str) and vars_to_export.startswith("$"):
+                vars_to_export = resolve_value(ctx, vars_to_export)
+
+            if not isinstance(vars_to_export, list):
+                vars_to_export = []
+
+            # Validate that all items in vars list are strings
+            if vars_to_export:
+                invalid_items = [v for v in vars_to_export if not isinstance(v, str)]
+                if invalid_items:
+                    messagebox.showerror(
+                        "Export Error",
+                        f"Invalid vars list: all items must be strings (variable names).\n"
+                        f"Invalid items: {invalid_items}\n\n"
+                        f"Example: [\"var1\", \"var2\"] is valid\n"
+                        f"[var1, var2] is not valid"
+                    )
+                    return
+
+            # Build the data to export
+            if vars_to_export:
+                # Export only specified variables
+                data = {}
+                for var_name in vars_to_export:
+                    if var_name in ctx["vars"]:
+                        data[var_name] = ctx["vars"][var_name]
+            else:
+                # Export all variables
+                data = dict(ctx["vars"])
+
+            # Write to file
+            try:
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export JSON: {e}")
+
+        def cmd_import_json(ctx, c):
+            """
+            Import variables from a JSON file.
+            The JSON file should contain an object with key-value pairs.
+            """
+            filename = resolve_value(ctx, c.get("filename", "import.json"))
+
+            if not os.path.exists(filename):
+                messagebox.showerror("Import Error", f"File not found: {filename}")
+                return
+
+            try:
+                with open(filename, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                if not isinstance(data, dict):
+                    messagebox.showerror("Import Error", "JSON file must contain an object (dictionary)")
+                    return
+
+                # Merge imported variables into context
+                for key, value in data.items():
+                    ctx["vars"][key] = value
+            except json.JSONDecodeError as e:
+                messagebox.showerror("Import Error", f"Invalid JSON: {e}")
+            except Exception as e:
+                messagebox.showerror("Import Error", f"Failed to import JSON: {e}")
+
         def cmd_type_name(ctx, c):
             """
             Types a name on Pokemon FRLG/RSE naming screens.
@@ -2417,6 +2501,31 @@ class ScriptEngine:
                 group="Variables",
                 order=42,
                 exportable=True
+            ),
+            CommandSpec(
+                "export_json", ["filename"], cmd_export_json,
+                doc="Export variables to a JSON file. If vars is empty, exports all variables.",
+                arg_schema=[
+                    {"key": "filename", "type": "str", "default": "export.json", "help": "Output filename (supports $var)"},
+                    {"key": "vars", "type": "json", "default": [], "help": "List of variable names (no $) to export (empty = all)"},
+                ],
+                format_fn=fmt_export_json,
+                group="Variables",
+                order=50,
+                exportable=False,
+                export_note="File I/O not supported in export"
+            ),
+            CommandSpec(
+                "import_json", ["filename"], cmd_import_json,
+                doc="Import variables from a JSON file. The file must contain a JSON object.",
+                arg_schema=[
+                    {"key": "filename", "type": "str", "default": "import.json", "help": "Input filename (supports $var)"},
+                ],
+                format_fn=fmt_import_json,
+                group="Variables",
+                order=51,
+                exportable=False,
+                export_note="File I/O not supported in export"
             ),
             CommandSpec(
                 "if", ["left", "op", "right"], cmd_if,

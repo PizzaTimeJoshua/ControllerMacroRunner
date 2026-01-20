@@ -1143,6 +1143,33 @@ class CommandEditorDialog(tk.Toplevel):
             messagebox.showerror("Invalid input", str(e), parent=self)
             return
 
+        # Command-specific validation
+        if name == "export_json":
+            vars_list = cmd_obj.get("vars", [])
+            # Check if vars failed JSON parsing (returned as string instead of list)
+            if isinstance(vars_list, str):
+                if vars_list.strip().startswith("["):
+                    messagebox.showerror(
+                        "Invalid vars",
+                        f"vars is not valid JSON.\n\n"
+                        f'Example: ["var1", "var2"] is valid\n'
+                        f"[var1, var2] is not valid",
+                        parent=self
+                    )
+                    return
+            elif isinstance(vars_list, list) and vars_list:
+                invalid_items = [v for v in vars_list if not isinstance(v, str)]
+                if invalid_items:
+                    messagebox.showerror(
+                        "Invalid vars",
+                        f"All items in vars must be strings (variable names).\n"
+                        f"Invalid items: {invalid_items}\n\n"
+                        f'Example: ["var1", "var2"] is valid\n'
+                        f"[var1, var2] is not valid",
+                        parent=self
+                    )
+                    return
+
         self.result = cmd_obj
         self.destroy()
 
