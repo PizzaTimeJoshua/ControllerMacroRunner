@@ -762,6 +762,47 @@ _SAFE_LIST_METHODS = frozenset({
     "append", "clear", "extend", "insert", "pop", "remove", "reverse", "sort",
 })
 
+# List methods that mutate in-place and return None - we wrap these to return the list instead
+_LIST_METHODS_RETURN_SELF = frozenset({
+    "append", "extend", "insert", "remove", "reverse", "sort", "clear",
+})
+
+class _ListWrapper(list):
+    """List wrapper that returns self for mutating methods instead of None."""
+    def append(self, item):
+        super().append(item)
+        return self
+    def extend(self, items):
+        super().extend(items)
+        return self
+    def insert(self, index, item):
+        super().insert(index, item)
+        return self
+    def pop(self, index=-1):
+        super().pop(index)
+        return self
+    def remove(self, item):
+        super().remove(item)
+        return self
+    def reverse(self):
+        super().reverse()
+        return self
+    def sort(self, *, key=None, reverse=False):
+        super().sort(key=key, reverse=reverse)
+        return self
+    def clear(self):
+        super().clear()
+        return self
+
+class _DictWrapper(dict):
+    """Dict wrapper that returns self for mutating methods instead of None."""
+    def clear(self):
+        super().clear()
+        return self
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+        return self
+
 _SAFE_DICT_METHODS = frozenset({
     "copy", "get", "items", "keys", "values",
     "pop", "popitem", "clear", "update", "setdefault",
@@ -796,6 +837,7 @@ def eval_expr(ctx, expr: str):
 
     # Build locals for used vars (missing vars become error)
     # Use deep copies for mutable types to prevent mutation of originals
+    # Lists are wrapped with _ListWrapper so mutating methods return the list
     local_vars = {}
     for name in used:
         if name not in ctx["vars"]:
@@ -803,8 +845,11 @@ def eval_expr(ctx, expr: str):
             return
         val = ctx["vars"][name]
         # Deep copy mutable types to prevent mutation
-        if isinstance(val, (list, dict)):
-            local_vars[name] = copy.deepcopy(val)
+        # Use wrappers so mutating methods return the container instead of None
+        if isinstance(val, list):
+            local_vars[name] = _ListWrapper(copy.deepcopy(val))
+        elif isinstance(val, dict):
+            local_vars[name] = _DictWrapper(copy.deepcopy(val))
         else:
             local_vars[name] = val
 
