@@ -1124,6 +1124,10 @@ class ScriptEngine:
             messagebox.showwarning("Unsupported commands", "\n".join(msg_lines))
             return
 
+        # Reset variables and instruction pointer before running
+        self.vars = {}
+        self.ip = 0
+
         self.running = True
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
