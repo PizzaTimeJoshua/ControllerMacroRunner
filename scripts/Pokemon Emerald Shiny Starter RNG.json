@@ -1,0 +1,1546 @@
+[
+  {
+    "cmd": "comment",
+    "text": "Settings"
+  },
+  {
+    "cmd": "comment",
+    "text": "Must Have Text Speed to Fast"
+  },
+  {
+    "cmd": "set",
+    "var": "PlayerName",
+    "value": "Joshua"
+  },
+  {
+    "cmd": "set",
+    "var": "Gender",
+    "value": "Boy"
+  },
+  {
+    "cmd": "comment",
+    "text": "TID you want to SR for"
+  },
+  {
+    "cmd": "set",
+    "var": "desired_tids",
+    "value": [
+      "00069",
+      "42069",
+      "11111",
+      "00000",
+      "00001",
+      "12345",
+      "00002",
+      "00777",
+      "00007",
+      "65535",
+      "13579",
+      "31415",
+      "271828",
+      "00420",
+      "00073",
+      "58008",
+      "60223"
+    ]
+  },
+  {
+    "cmd": "set",
+    "var": "SR_TID",
+    "value": false
+  },
+  {
+    "cmd": "comment",
+    "text": "Treeko. Torchic, Mudkip"
+  },
+  {
+    "cmd": "set",
+    "var": "Starter",
+    "value": "Mudkip"
+  },
+  {
+    "cmd": "comment",
+    "text": "59.7275 For GBA"
+  },
+  {
+    "cmd": "comment",
+    "text": "59.6555  For DS Slot 2"
+  },
+  {
+    "cmd": "set",
+    "var": "RefreshRate",
+    "value": 59.7275
+  },
+  {
+    "cmd": "comment",
+    "text": "/////////////////////////////"
+  },
+  {
+    "cmd": "comment",
+    "text": "/////Don't Adjust Below//////"
+  },
+  {
+    "cmd": "comment",
+    "text": "/////////////////////////////"
+  },
+  {
+    "cmd": "comment",
+    "text": "Target SID Frame - Minimum 710"
+  },
+  {
+    "cmd": "set",
+    "var": "SID_Frame",
+    "value": 750
+  },
+  {
+    "cmd": "comment",
+    "text": "Frame Perfect timings"
+  },
+  {
+    "cmd": "set",
+    "var": "frame",
+    "value": "=1000 / $RefreshRate"
+  },
+  {
+    "cmd": "label",
+    "name": "hunt_tid"
+  },
+  {
+    "cmd": "comment",
+    "text": "Soft Reset"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A",
+      "B",
+      "Start",
+      "Select"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 5000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "comment",
+    "text": "New Game"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 10000
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 15000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "comment",
+    "text": "Gender Selection"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 800
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 2000
+  },
+  {
+    "cmd": "comment",
+    "text": "Name"
+  },
+  {
+    "cmd": "type_name",
+    "name": "$PlayerName",
+    "confirm": false,
+    "move_delay_ms": 200,
+    "select_delay_ms": 600,
+    "press_delay_ms": 400,
+    "button_hold_ms": 50
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "comment",
+    "text": "Mash + Wait until SID Frame"
+  },
+  {
+    "cmd": "set",
+    "var": "wait_for_SID",
+    "value": "=$frame * ($SID_Frame - 50) - 11000"
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "wait",
+    "ms": "$wait_for_SID"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "comment",
+    "text": "Check TID and Calculate SID"
+  },
+  {
+    "cmd": "wait",
+    "ms": 17000
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Start"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 3000
+  },
+  {
+    "cmd": "read_text",
+    "x": 461,
+    "y": 37,
+    "width": 85,
+    "height": 49,
+    "out": "TID",
+    "scale": 1,
+    "threshold": 0,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "if",
+    "left": "$SR_TID",
+    "op": "==",
+    "right": true
+  },
+  {
+    "cmd": "contains",
+    "needle": "$TID",
+    "haystack": "$desired_tids",
+    "out": "found_tid"
+  },
+  {
+    "cmd": "if",
+    "left": "$found_tid",
+    "op": "==",
+    "right": false
+  },
+  {
+    "cmd": "goto",
+    "label": "hunt_tid"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "run_python",
+    "file": "gen3_sid_from_tid.py",
+    "args": [
+      "$TID",
+      "$SID_Frame"
+    ],
+    "out": "SIDs",
+    "timeout_s": 10
+  },
+  {
+    "cmd": "comment",
+    "text": "Save Game"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "B"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 3000
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 4000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 200
+  },
+  {
+    "cmd": "comment",
+    "text": "Move from Truck to Room"
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 157,
+    "y": 99,
+    "width": 32,
+    "height": 30,
+    "rgb": [
+      255,
+      255,
+      255
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": false,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 496,
+    "y": 364,
+    "width": 22,
+    "height": 22,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 6000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 496,
+    "y": 364,
+    "width": 22,
+    "height": 22,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 0.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 6000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "press",
+    "buttons": [],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 2000
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 1700,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "run_python",
+    "file": "rse_clock_frames.py",
+    "args": [],
+    "out": "clock_frames",
+    "timeout_s": 10
+  },
+  {
+    "cmd": "comment",
+    "text": "Assign Wall Clock to Current Time"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": "=$clock_frames * $frame"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 7700,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "comment",
+    "text": "Watch TV"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 450
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 450
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 200
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 14000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "comment",
+    "text": "Go To Rival's House"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 1200
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 1200
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 1500
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Left"
+    ]
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 2500
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "comment",
+    "text": "Enter Rivals House"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "B"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Down"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 10000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Down"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 284,
+    "y": 163,
+    "width": 70,
+    "height": 75,
+    "rgb": [
+      0,
+      0,
+      0
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "comment",
+    "text": "Go to Save Birch"
+  },
+  {
+    "cmd": "wait",
+    "ms": 2500
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Girl"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Right"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": 1700
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Gender",
+    "op": "==",
+    "right": "Boy"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Left"
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": 700
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "hold",
+    "buttons": [
+      "Up"
+    ]
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "B"
+    ],
+    "duration_ms": 3200,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 500
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 6000
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 1500,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Up"
+    ],
+    "ms": 250
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "Left"
+    ],
+    "duration_ms": 1000,
+    "hold_ms": 200,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "comment",
+    "text": "Save Game for Starter"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Start"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 4000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 562,
+    "y": 331,
+    "width": 35,
+    "height": 36,
+    "rgb": [
+      253,
+      253,
+      253
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 30.0,
+    "wait_for": false,
+    "out": ""
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "export_json",
+    "filename": "TID_SIDs.json",
+    "vars": [
+      "TID",
+      "SIDs"
+    ]
+  },
+  {
+    "cmd": "export_json",
+    "filename": "starter.json",
+    "vars": [
+      "Starter"
+    ]
+  },
+  {
+    "cmd": "comment",
+    "text": "Ready to RNG Starter"
+  },
+  {
+    "cmd": "set",
+    "var": "offset",
+    "value": 0
+  },
+  {
+    "cmd": "label",
+    "name": "next_sid"
+  },
+  {
+    "cmd": "set",
+    "var": "SID",
+    "value": "$SIDs[0]"
+  },
+  {
+    "cmd": "set",
+    "var": "SIDs",
+    "value": "=$SIDs.pop(0)"
+  },
+  {
+    "cmd": "wait",
+    "ms": 200
+  },
+  {
+    "cmd": "run_python",
+    "file": "gen3_shiny_frame.py",
+    "args": [
+      "$TID",
+      "$SID",
+      0,
+      1200
+    ],
+    "out": "shiny_info",
+    "timeout_s": 10
+  },
+  {
+    "cmd": "set",
+    "var": "shiny_frame",
+    "value": "=$shiny_info.get(\"frame\")"
+  },
+  {
+    "cmd": "label",
+    "name": "Hunt"
+  },
+  {
+    "cmd": "set",
+    "var": "shiny_wait",
+    "value": "=$frame * ($shiny_frame - $offset) - 9900"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A",
+      "B",
+      "Start",
+      "Select"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "A"
+    ],
+    "duration_ms": 7500,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait",
+    "ms": 1000
+  },
+  {
+    "cmd": "if",
+    "left": "$Starter",
+    "op": "==",
+    "right": "Torchic"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Starter",
+    "op": "==",
+    "right": "Treeko"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "if",
+    "left": "$Starter",
+    "op": "==",
+    "right": "Mudkip"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": "$shiny_wait"
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "mash",
+    "buttons": [
+      "B"
+    ],
+    "duration_ms": 7000,
+    "hold_ms": 25,
+    "wait_ms": 25
+  },
+  {
+    "cmd": "wait_for_color_area",
+    "x": 575,
+    "y": 329,
+    "width": 33,
+    "height": 22,
+    "rgb": [
+      254,
+      253,
+      254
+    ],
+    "tol": 10.0,
+    "interval": 0.1,
+    "timeout": 10.0,
+    "wait_for": true,
+    "out": ""
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Down"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 2000
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "A"
+    ],
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 3000
+  },
+  {
+    "cmd": "find_area_color",
+    "x": 23,
+    "y": 63,
+    "width": 22,
+    "height": 9,
+    "rgb": [
+      186,
+      201,
+      101
+    ],
+    "tol": 10.0,
+    "out": "shiny_found"
+  },
+  {
+    "cmd": "if",
+    "left": "$shiny_found",
+    "op": "==",
+    "right": false
+  },
+  {
+    "cmd": "read_text",
+    "x": 226,
+    "y": 303,
+    "width": 96,
+    "height": 36,
+    "out": "nature",
+    "scale": 1,
+    "threshold": 0,
+    "invert": false,
+    "psm": 7,
+    "whitelist": ""
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "read_text",
+    "x": 414,
+    "y": 151,
+    "width": 51,
+    "height": 40,
+    "out": "HP",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "read_text",
+    "x": 408,
+    "y": 189,
+    "width": 59,
+    "height": 44,
+    "out": "ATK",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "read_text",
+    "x": 394,
+    "y": 237,
+    "width": 72,
+    "height": 36,
+    "out": "DEF",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "read_text",
+    "x": 578,
+    "y": 149,
+    "width": 50,
+    "height": 42,
+    "out": "SPA",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "read_text",
+    "x": 576,
+    "y": 192,
+    "width": 56,
+    "height": 41,
+    "out": "SPD",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "read_text",
+    "x": 590,
+    "y": 234,
+    "width": 40,
+    "height": 39,
+    "out": "SPE",
+    "scale": 1,
+    "threshold": 180,
+    "invert": false,
+    "psm": 7,
+    "whitelist": "0123456789"
+  },
+  {
+    "cmd": "run_python",
+    "file": "gen3_frame_finder.py",
+    "args": [
+      "$TID",
+      "$SID",
+      "0x0",
+      "$shiny_frame",
+      20,
+      1,
+      "$Starter",
+      5,
+      "$nature",
+      [
+        "$HP",
+        "$ATK",
+        "$DEF",
+        "$SPA",
+        "$SPD",
+        "$SPE"
+      ]
+    ],
+    "out": "frame_hit_results",
+    "timeout_s": 1000
+  },
+  {
+    "cmd": "set",
+    "var": "new_offset",
+    "value": "=$frame_hit_results.get(\"best_offset\")"
+  },
+  {
+    "cmd": "if",
+    "left": "$new_offset",
+    "op": "!=",
+    "right": 0
+  },
+  {
+    "cmd": "set",
+    "var": "offset",
+    "value": "=$new_offset + $offset"
+  },
+  {
+    "cmd": "goto",
+    "label": "Hunt"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "comment",
+    "text": "Frame Hit but No Shiny"
+  },
+  {
+    "cmd": "if",
+    "left": "$SIDs",
+    "op": "!=",
+    "right": []
+  },
+  {
+    "cmd": "goto",
+    "label": "next_sid"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "end_if"
+  },
+  {
+    "cmd": "discord_status",
+    "message": "Program Complete!",
+    "ping": true,
+    "image": "$frame"
+  }
+]
