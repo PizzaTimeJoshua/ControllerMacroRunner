@@ -86,6 +86,10 @@ def main(tid, advances):
     seed = int(tid)
     possible_sids = []
     possible_sids.append(sid_from_tid_and_advances(seed, int(advances)))
-    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) +1))
     possible_sids.append(sid_from_tid_and_advances(seed, int(advances) -1))
+    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) +1))
+    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) -2))
+    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) +2))
+    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) -3))
+    possible_sids.append(sid_from_tid_and_advances(seed, int(advances) +3))
     return possible_sids
