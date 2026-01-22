@@ -656,7 +656,7 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
     if whitelist:
         if numeric_mode:
             # Include commonly confused characters for better recognition
-            config_parts.append("-c tessedit_char_whitelist=0123456789BSZOI")
+            config_parts.append("-c tessedit_char_whitelist=0123456789BSZOIl[]")
         else:
             config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
 
@@ -667,6 +667,9 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
         return (text
                 .replace('O', '0')
                 .replace('I', '1')
+                .replace('l', '1')
+                .replace('[', '1')
+                .replace(']', '1')
                 .replace('S', '5')
                 .replace('Z', '2')
                 .replace('B', '8'))
@@ -1699,7 +1702,7 @@ class ScriptEngine:
                 ctx["on_python_needed"]()
                 return
 
-            file_name = str(c["file"]).strip()
+            file_name = str(resolve_value(ctx, c["file"]) or c["file"]).strip()
             if not file_name:
                 messagebox.showerror("error", "run_python: file is empty")
                 return
@@ -1728,7 +1731,7 @@ class ScriptEngine:
             # Resolve $var references inside list elements
             args = resolve_vars_deep(ctx, args)
 
-            timeout_s = int(c.get("timeout_s", 10))
+            timeout_s = int(resolve_value(ctx, c.get("timeout_s", 10)) or 10)
             res = run_python_main(script_path, args, timeout_s=timeout_s)
 
             outvar = (c.get("out") or "").strip()
