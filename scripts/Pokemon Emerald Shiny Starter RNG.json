@@ -10,12 +10,12 @@
   {
     "cmd": "set",
     "var": "PlayerName",
-    "value": "May"
+    "value": "Kalo"
   },
   {
     "cmd": "set",
     "var": "Gender",
-    "value": "Girl"
+    "value": "Boy"
   },
   {
     "cmd": "comment",
@@ -24,7 +24,7 @@
   {
     "cmd": "set",
     "var": "Starter",
-    "value": "Treecko"
+    "value": "Torchic"
   },
   {
     "cmd": "comment",
@@ -1396,7 +1396,7 @@
   },
   {
     "cmd": "wait",
-    "ms": 500
+    "ms": 1000
   },
   {
     "cmd": "read_text",
