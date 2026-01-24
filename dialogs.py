@@ -11,10 +11,10 @@ import json
 import SerialController
 from utils import (
     list_python_files, get_default_keybindings,
-    is_ffmpeg_available, is_tesseract_available,
-    get_ffmpeg_dir, get_tesseract_dir,
-    download_ffmpeg, download_tesseract,
-    FFMPEG_VERSION, TESSERACT_VERSION,
+    is_ffmpeg_available, is_paddleocr_available,
+    get_ffmpeg_dir, get_paddleocr_dir,
+    download_ffmpeg, download_paddleocr_models,
+    FFMPEG_VERSION, get_paddleocr_version,
 )
 
 
@@ -108,7 +108,7 @@ class SettingsDialog(tk.Toplevel):
         self._create_keybinds_tab()
         self._create_threeds_tab()
         self._create_appearance_tab()  # Combined Appearance + Custom Theme
-        self._create_dependencies_tab()  # Combined Python + FFmpeg + Tesseract
+        self._create_dependencies_tab()  # Combined Python + FFmpeg + PaddleOCR
         self._create_discord_tab()
         self._create_editing_tab()
 
@@ -341,7 +341,7 @@ class SettingsDialog(tk.Toplevel):
         ).grid(row=1, column=0, sticky="w")
 
     def _create_dependencies_tab(self):
-        """Create the combined dependencies tab for Python, FFmpeg, and Tesseract."""
+        """Create the combined dependencies tab for Python, FFmpeg, and PaddleOCR."""
         from utils import is_embedded_python_available, PYTHON_EMBED_VERSION, get_embedded_python_dir
 
         tab = ttk.Frame(self.notebook, padding=10)
@@ -350,7 +350,7 @@ class SettingsDialog(tk.Toplevel):
 
         ttk.Label(
             tab,
-            text="Optional dependencies can be downloaded automatically.",
+            text="Optional dependencies can be installed or downloaded from here.",
             foreground="gray",
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
@@ -406,36 +406,36 @@ class SettingsDialog(tk.Toplevel):
             row=2, column=2, sticky="e"
         )
 
-        # --- Tesseract Section ---
-        tesseract_frame = ttk.LabelFrame(tab, text="Tesseract OCR", padding=10)
-        tesseract_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        tesseract_frame.columnconfigure(1, weight=1)
+        # --- PaddleOCR Section ---
+        paddleocr_frame = ttk.LabelFrame(tab, text="PaddleOCR", padding=10)
+        paddleocr_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        paddleocr_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(tesseract_frame, text="For read_text command", foreground="gray").grid(
+        ttk.Label(paddleocr_frame, text="For read_text command", foreground="gray").grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 5)
         )
 
-        ttk.Label(tesseract_frame, text="Status:").grid(row=1, column=0, sticky="w")
-        self._tesseract_status_var = tk.StringVar()
-        self._tesseract_status_label = ttk.Label(tesseract_frame, textvariable=self._tesseract_status_var)
-        self._tesseract_status_label.grid(row=1, column=1, sticky="w", padx=(10, 0))
+        ttk.Label(paddleocr_frame, text="Status:").grid(row=1, column=0, sticky="w")
+        self._paddleocr_status_var = tk.StringVar()
+        self._paddleocr_status_label = ttk.Label(paddleocr_frame, textvariable=self._paddleocr_status_var)
+        self._paddleocr_status_label.grid(row=1, column=1, sticky="w", padx=(10, 0))
 
-        self._tesseract_download_btn = ttk.Button(
-            tesseract_frame, text="Download", command=self._download_tesseract, width=12
+        self._paddleocr_download_btn = ttk.Button(
+            paddleocr_frame, text="Install", command=self._download_paddleocr, width=12
         )
-        self._tesseract_download_btn.grid(row=1, column=2, sticky="e", padx=(10, 0))
+        self._paddleocr_download_btn.grid(row=1, column=2, sticky="e", padx=(10, 0))
 
-        ttk.Label(tesseract_frame, text=f"Version: {TESSERACT_VERSION}", foreground="gray").grid(
+        ttk.Label(paddleocr_frame, text=f"Version: {get_paddleocr_version()}", foreground="gray").grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(5, 0)
         )
-        ttk.Label(tesseract_frame, text="~48 MB", foreground="gray").grid(
+        ttk.Label(paddleocr_frame, text="Model download size varies", foreground="gray").grid(
             row=2, column=2, sticky="e"
         )
 
         # Update all statuses
         self._update_python_status()
         self._update_ffmpeg_status()
-        self._update_tesseract_status()
+        self._update_paddleocr_status()
 
     def _update_python_status(self):
         """Update the Python status display."""
@@ -485,29 +485,40 @@ class SettingsDialog(tk.Toplevel):
         )
         self.wait_window(dialog)
 
-    def _update_tesseract_status(self):
-        """Update the Tesseract status display."""
-        if is_tesseract_available():
-            self._tesseract_status_var.set("Installed")
-            self._tesseract_status_label.configure(foreground="green")
-            self._tesseract_download_btn.configure(text="Reinstall")
+    def _update_paddleocr_status(self):
+        """Update the PaddleOCR status display."""
+        if is_paddleocr_available():
+            self._paddleocr_status_var.set("Installed")
+            self._paddleocr_status_label.configure(foreground="green")
+            self._paddleocr_download_btn.configure(text="Download Models")
         else:
-            self._tesseract_status_var.set("Not installed")
-            self._tesseract_status_label.configure(foreground="red")
-            self._tesseract_download_btn.configure(text="Download")
+            self._paddleocr_status_var.set("Not installed")
+            self._paddleocr_status_label.configure(foreground="red")
+            self._paddleocr_download_btn.configure(text="Install")
 
-    def _download_tesseract(self):
-        """Open the Tesseract download dialog."""
+    def _download_paddleocr(self):
+        """Open the PaddleOCR model download dialog or show install instructions."""
+        if not is_paddleocr_available():
+            messagebox.showinfo(
+                "Install PaddleOCR",
+                "Install with:\n"
+                "  pip install paddleocr\n\n"
+                "If needed, install the PaddlePaddle runtime:\n"
+                "  pip install paddlepaddle",
+                parent=self
+            )
+            return
+
         def on_complete(success):
-            self._update_tesseract_status()
+            self._update_paddleocr_status()
 
         dialog = DependencyDownloadDialog(
             self,
-            dependency_name="Tesseract OCR",
-            download_fn=download_tesseract,
-            size_hint="~48 MB",
-            version=f"Tesseract {TESSERACT_VERSION}",
-            location=get_tesseract_dir(),
+            dependency_name="PaddleOCR Models",
+            download_fn=download_paddleocr_models,
+            size_hint="varies",
+            version=f"PaddleOCR {get_paddleocr_version()}",
+            location=get_paddleocr_dir(),
             on_complete_callback=on_complete
         )
         self.wait_window(dialog)
@@ -1488,7 +1499,7 @@ class DependencyDownloadDialog(tk.Toplevel):
         """
         Args:
             parent: Parent window
-            dependency_name: Name to display (e.g., "FFmpeg", "Tesseract")
+            dependency_name: Name to display (e.g., "FFmpeg", "PaddleOCR")
             download_fn: Function to call for download, takes progress_callback
             size_hint: Size hint to display (e.g., "~140 MB")
             version: Version string to display

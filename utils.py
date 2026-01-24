@@ -43,21 +43,6 @@ def ffmpeg_path() -> str:
     return "ffmpeg"  # fallback to PATH
 
 
-def tesseract_path() -> str:
-    """Get path to tesseract executable."""
-    # Check 1: PyInstaller temp folder (if bundled with --add-data)
-    bundled = resource_path("bin/Tesseract-OCR/tesseract.exe")
-    if os.path.exists(bundled):
-        return bundled
-
-    # Check 2: Directory next to the executable (for external bin folder)
-    exe_local = exe_dir_path("bin/Tesseract-OCR/tesseract.exe")
-    if os.path.exists(exe_local):
-        return exe_local
-
-    return "tesseract"  # fallback to PATH
-
-
 # ----------------------------
 # FFmpeg Download Support
 # ----------------------------
@@ -70,16 +55,170 @@ FFMPEG_VERSION = "release-full-shared"
 
 
 # ----------------------------
-# Tesseract Download Support
+# PaddleOCR Support
 # ----------------------------
 
-# UB-Mannheim provides Windows installers - we extract with 7z to avoid elevation
-TESSERACT_URL = "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-TESSERACT_DIR = "bin/Tesseract-OCR"
-TESSERACT_VERSION = "5.5.0"
+PADDLEOCR_LANGUAGE = "en"
 
-# Tessdata language files (eng.traineddata required for OCR)
-TESSDATA_ENG_URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
+
+def configure_paddle_env():
+    """Set environment flags to avoid unsupported CPU instruction paths."""
+    os.environ.setdefault("FLAGS_use_mkldnn", "0")
+    os.environ.setdefault("FLAGS_enable_mkldnn", "0")
+    os.environ.setdefault("FLAGS_use_onednn", "0")
+    os.environ.setdefault("FLAGS_enable_onednn", "0")
+    os.environ.setdefault("PADDLE_DISABLE_ONEDNN", "1")
+    os.environ.setdefault("FLAGS_new_executor", "0")
+    os.environ.setdefault("FLAGS_use_new_executor", "0")
+    os.environ.setdefault("FLAGS_enable_pir_api", "0")
+    os.environ.setdefault("FLAGS_use_pir_api", "0")
+    os.environ.setdefault("FLAGS_enable_pir", "0")
+    os.environ.setdefault("FLAGS_use_pir", "0")
+
+
+def _filter_kwargs(func, kwargs: dict) -> dict:
+    """Filter kwargs to match a callable's supported parameters."""
+    try:
+        import inspect
+        sig = inspect.signature(func)
+        if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values()):
+            return kwargs
+        return {key: value for key, value in kwargs.items() if key in sig.parameters}
+    except Exception:
+        return kwargs
+
+
+def _strip_unknown_args(kwargs: dict, error_message: str) -> bool:
+    removed = False
+
+    match = re.search(r"Unknown argument[s]?:\s*([A-Za-z0-9_,\s\-]+)", error_message)
+    if match:
+        raw = match.group(1)
+        for name in raw.split(","):
+            key = name.strip(" .\"'")  # remove punctuation/quotes
+            if key and key in kwargs:
+                del kwargs[key]
+                removed = True
+
+    unknown_keys = re.findall(r"unexpected keyword argument ['\"]([A-Za-z0-9_]+)['\"]", error_message)
+    for key in unknown_keys:
+        if key in kwargs:
+            del kwargs[key]
+            removed = True
+
+    return removed
+
+
+def create_paddleocr_instance():
+    """Create a PaddleOCR instance while removing unsupported kwargs."""
+    configure_paddle_env()
+    from paddleocr import PaddleOCR
+
+    base = {
+        "use_angle_cls": False,
+        "lang": PADDLEOCR_LANGUAGE,
+        "use_gpu": False,
+        "use_mkldnn": False,
+        "enable_mkldnn": False,
+        "show_log": False,
+    }
+    kwargs = _filter_kwargs(PaddleOCR.__init__, base)
+
+    for _ in range(len(kwargs) + 1):
+        try:
+            return PaddleOCR(**kwargs)
+        except Exception as e:
+            err = str(e)
+            if _strip_unknown_args(kwargs, err):
+                continue
+            if "unexpected keyword argument" in err:
+                break
+            raise
+
+    return PaddleOCR()
+
+
+def paddleocr_call(ocr, image, det: bool = True, rec: bool = True, cls: bool = False):
+    """Call PaddleOCR while removing unsupported kwargs."""
+    kwargs = _filter_kwargs(ocr.ocr, {"det": det, "rec": rec, "cls": cls})
+    for _ in range(len(kwargs) + 1):
+        try:
+            return ocr.ocr(image, **kwargs)
+        except Exception as e:
+            err = str(e)
+            if _strip_unknown_args(kwargs, err):
+                continue
+            if "unexpected keyword argument" in err:
+                break
+            raise
+    return ocr.ocr(image)
+
+
+def is_paddleocr_available() -> bool:
+    """Check if PaddleOCR is available in the current Python environment."""
+    try:
+        configure_paddle_env()
+        from paddleocr import PaddleOCR  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def get_paddleocr_version() -> str:
+    """Get the installed PaddleOCR package version, if available."""
+    try:
+        configure_paddle_env()
+        import importlib.metadata as metadata
+        return metadata.version("paddleocr")
+    except Exception:
+        return "not installed"
+
+
+def get_paddleocr_dir() -> str:
+    """Get the directory where PaddleOCR stores its model cache."""
+    return os.environ.get("PADDLEOCR_BASE_DIR", os.path.join(os.path.expanduser("~"), ".paddleocr"))
+
+
+def download_paddleocr_models(progress_callback=None) -> tuple[bool, str]:
+    """
+    Ensure PaddleOCR models are downloaded by initializing the engine once.
+
+    Args:
+        progress_callback: Optional function(percent: int, status: str) called during download
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        configure_paddle_env()
+        from paddleocr import PaddleOCR  # noqa: F401
+    except Exception:
+        return False, "PaddleOCR is not installed. Install with: pip install paddleocr"
+
+    try:
+        if progress_callback:
+            progress_callback(5, "Initializing PaddleOCR...")
+
+        ocr = create_paddleocr_instance()
+
+        if progress_callback:
+            progress_callback(70, "Downloading models (if needed)...")
+
+        try:
+            import numpy as np
+            dummy = np.zeros((32, 32, 3), dtype=np.uint8)
+            _ = paddleocr_call(ocr, dummy, det=True, rec=True, cls=False)
+        except Exception:
+            # Model initialization may already be complete; ignore warm-up failures.
+            pass
+
+        if progress_callback:
+            progress_callback(100, "Done!")
+
+        return True, "PaddleOCR models are ready"
+
+    except Exception as e:
+        return False, f"Installation failed: {e}"
 
 
 # ----------------------------
@@ -440,189 +579,6 @@ def download_ffmpeg(progress_callback=None) -> tuple[bool, str]:
                 return False, "Extraction failed: ffmpeg.exe not found"
 
             return True, "FFmpeg installed successfully"
-
-        finally:
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
-
-    except urllib.error.URLError as e:
-        return False, f"Download failed: {e.reason}"
-    except urllib.error.HTTPError as e:
-        return False, f"Download failed: HTTP {e.code}"
-    except subprocess.TimeoutExpired:
-        return False, "Extraction timed out"
-    except Exception as e:
-        return False, f"Installation failed: {e}"
-
-
-# ----------------------------
-# Tesseract Availability and Download
-# ----------------------------
-
-def is_tesseract_available() -> bool:
-    """Check if Tesseract is installed locally or on PATH."""
-    import shutil
-
-    # Check local installation
-    exe_local = exe_dir_path(f"{TESSERACT_DIR}/tesseract.exe")
-    if os.path.exists(exe_local):
-        return True
-
-    # Check bundled (PyInstaller)
-    bundled = resource_path(f"{TESSERACT_DIR}/tesseract.exe")
-    if os.path.exists(bundled):
-        return True
-
-    # Check PATH
-    return shutil.which("tesseract") is not None
-
-
-def get_tesseract_dir() -> str:
-    """Get the directory where Tesseract should be installed."""
-    return exe_dir_path(TESSERACT_DIR)
-
-
-def download_tesseract(progress_callback=None) -> tuple[bool, str]:
-    """
-    Download and install Tesseract OCR by extracting the NSIS installer.
-
-    Args:
-        progress_callback: Optional function(percent: int, status: str) called during download
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
-    import urllib.request
-    import tempfile
-    import shutil
-    import subprocess
-
-    target_dir = get_tesseract_dir()
-
-    try:
-        os.makedirs(os.path.dirname(target_dir), exist_ok=True)
-
-        if progress_callback:
-            progress_callback(0, "Checking for 7-Zip...")
-
-        # Get 7za for extraction (need full version with DLLs for NSIS support)
-        seven_zip = _get_7za_path(progress_callback)
-        if not seven_zip:
-            return False, "Could not find or download 7-Zip. Please install 7-Zip and try again."
-
-        if progress_callback:
-            progress_callback(5, "Connecting to GitHub...")
-
-        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-
-        try:
-            req = urllib.request.Request(
-                TESSERACT_URL,
-                headers={"User-Agent": "ControllerMacroRunner/1.0"}
-            )
-
-            with urllib.request.urlopen(req, timeout=120) as response:
-                total_size = int(response.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 65536
-
-                if progress_callback:
-                    progress_callback(5, "Downloading Tesseract...")
-
-                with open(tmp_path, "wb") as out_file:
-                    while True:
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        out_file.write(chunk)
-                        downloaded += len(chunk)
-
-                        if total_size > 0 and progress_callback:
-                            percent = 5 + int((downloaded / total_size) * 75)
-                            mb_done = downloaded / (1024 * 1024)
-                            mb_total = total_size / (1024 * 1024)
-                            progress_callback(percent, f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
-
-            if progress_callback:
-                progress_callback(85, "Extracting Tesseract...")
-
-            # Remove existing installation
-            if os.path.exists(target_dir):
-                shutil.rmtree(target_dir)
-            os.makedirs(target_dir, exist_ok=True)
-
-            # Extract NSIS installer using 7z (requires full 7za with DLLs)
-            result = subprocess.run(
-                [seven_zip, "x", "-y", f"-o{target_dir}", tmp_path],
-                capture_output=True,
-                timeout=300
-            )
-
-            if result.returncode != 0:
-                stdout = result.stdout.decode('utf-8', errors='ignore').strip()
-                stderr = result.stderr.decode('utf-8', errors='ignore').strip()
-                error_msg = stderr or stdout or f"Exit code {result.returncode}"
-                return False, f"Extraction failed: {error_msg}"
-
-            # Verify tesseract.exe exists
-            tesseract_exe = os.path.join(target_dir, "tesseract.exe")
-            if not os.path.exists(tesseract_exe):
-                return False, "Extraction failed: tesseract.exe not found"
-
-            # Clean up NSIS metadata files
-            for cleanup_item in ["$PLUGINSDIR", "$TEMP", "Uninstall.exe", "uninstall.exe"]:
-                cleanup_path = os.path.join(target_dir, cleanup_item)
-                if os.path.isdir(cleanup_path):
-                    shutil.rmtree(cleanup_path, ignore_errors=True)
-                elif os.path.isfile(cleanup_path):
-                    try:
-                        os.remove(cleanup_path)
-                    except Exception:
-                        pass
-
-            # Download eng.traineddata for OCR
-            if progress_callback:
-                progress_callback(90, "Downloading English language data...")
-
-            tessdata_dir = os.path.join(target_dir, "tessdata")
-            os.makedirs(tessdata_dir, exist_ok=True)
-            eng_traineddata_path = os.path.join(tessdata_dir, "eng.traineddata")
-
-            lang_data_success = False
-            # Only download if not already present (installer might include it)
-            if not os.path.exists(eng_traineddata_path):
-                try:
-                    req = urllib.request.Request(
-                        TESSDATA_ENG_URL,
-                        headers={"User-Agent": "ControllerMacroRunner/1.0"}
-                    )
-                    with urllib.request.urlopen(req, timeout=60) as response:
-                        with open(eng_traineddata_path, "wb") as out_file:
-                            out_file.write(response.read())
-                    lang_data_success = True
-                except Exception:
-                    # Don't fail the whole installation if language data fails
-                    # User can still manually add it later
-                    pass
-            else:
-                lang_data_success = True
-
-            if progress_callback:
-                progress_callback(100, "Done!")
-
-            # Verify installation
-            tesseract_exe = os.path.join(target_dir, "tesseract.exe")
-            if not os.path.exists(tesseract_exe):
-                return False, "Extraction failed: tesseract.exe not found"
-
-            if lang_data_success:
-                return True, f"Tesseract {TESSERACT_VERSION} installed successfully"
-            else:
-                return True, f"Tesseract {TESSERACT_VERSION} installed (warning: eng.traineddata download failed)"
 
         finally:
             if os.path.exists(tmp_path):
