@@ -25,10 +25,6 @@ from PIL import Image, ImageTk
 
 from typing import Optional
 
-# Configure Paddle environment before importing OCR modules.
-from utils import configure_paddle_env
-configure_paddle_env()
-
 # Import from local modules
 import InputRedirection
 import SerialController
@@ -46,10 +42,13 @@ from utils import (
     resolve_theme_mode,
     is_python_available,
     is_ffmpeg_available,
-    is_paddleocr_available,
+    is_tesseract_available,
     download_ffmpeg,
+    download_tesseract,
     get_ffmpeg_dir,
+    get_tesseract_dir,
     FFMPEG_VERSION,
+    TESSERACT_VERSION,
 )
 from camera import (
     list_dshow_video_devices,
@@ -306,10 +305,10 @@ class App:
             self.set_status("Settings save failed.")
 
     def _check_dependencies_startup(self):
-        """Check for missing dependencies on first startup and offer to install them.
+        """Check for missing dependencies on first startup and offer to download them.
 
         Only shows the prompt once. After dismissing (yes or no), the prompt
-        won't appear again. Users can install dependencies from Settings.
+        won't appear again. Users can download dependencies from Settings.
         """
         # Only show this prompt once ever
         if self._settings.get("dependency_check_shown"):
@@ -318,8 +317,8 @@ class App:
         missing = []
         if not is_ffmpeg_available():
             missing.append("FFmpeg")
-        if not is_paddleocr_available():
-            missing.append("PaddleOCR")
+        if not is_tesseract_available():
+            missing.append("Tesseract OCR")
 
         if not missing:
             # No dependencies missing, mark as shown so we don't check again
@@ -333,14 +332,14 @@ class App:
             if missing[0] == "FFmpeg":
                 msg += "FFmpeg is required for camera capture functionality."
             else:
-                msg += "PaddleOCR is required for text recognition (read_text command)."
+                msg += "Tesseract is required for text recognition (read_text command)."
         else:
             msg = "The following dependencies are not installed:\n\n"
             msg += "  - FFmpeg (required for camera capture)\n"
-            msg += "  - PaddleOCR (required for text recognition)\n"
+            msg += "  - Tesseract OCR (required for text recognition)\n"
 
-        msg += "\n\nWould you like to install them now?\n\n"
-        msg += "(You can also install later from Settings > Dependencies.)"
+        msg += "\n\nWould you like to download them now?\n\n"
+        msg += "(You can also download later from Settings > Dependencies.)"
 
         result = messagebox.askyesno(
             "Missing Dependencies",
@@ -355,7 +354,7 @@ class App:
         if not result:
             return
 
-        # Install missing dependencies sequentially
+        # Download missing dependencies sequentially
         if "FFmpeg" in missing:
             dialog = DependencyDownloadDialog(
                 self.root,
@@ -369,14 +368,18 @@ class App:
             if dialog.result:
                 self.set_status("FFmpeg installed successfully.")
 
-        if "PaddleOCR" in missing:
-            messagebox.showinfo(
-                "Install PaddleOCR",
-                "Install PaddleOCR with:\n"
-                "  pip install paddleocr\n\n"
-                "The first OCR call will download model files automatically.",
-                parent=self.root
+        if "Tesseract OCR" in missing:
+            dialog = DependencyDownloadDialog(
+                self.root,
+                dependency_name="Tesseract OCR",
+                download_fn=download_tesseract,
+                size_hint="~48 MB",
+                version=f"Tesseract {TESSERACT_VERSION}",
+                location=get_tesseract_dir(),
             )
+            self.root.wait_window(dialog)
+            if dialog.result:
+                self.set_status("Tesseract installed successfully.")
 
     def apply_theme_setting(self, theme_setting: str):
         theme_setting = normalize_theme_setting(theme_setting)
@@ -2657,20 +2660,6 @@ class App:
                 else:
                     return  # User declined, don't run script
 
-        needs_ocr = any(
-            c.get("cmd") == "read_text"
-            for c in self.engine.commands
-            if isinstance(c, dict)
-        )
-        if needs_ocr and ScriptEngine.PADDLEOCR_AVAILABLE:
-            self.set_status("Warming up OCR models...")
-            try:
-                ScriptEngine.warmup_paddleocr()
-            except Exception as e:
-                messagebox.showwarning("OCR Warmup", f"OCR warmup failed:\n{e}")
-            else:
-                self.set_status("OCR warmup complete.")
-
         try:
             self.engine.rebuild_indexes(strict=True)  # strict only when running
             self.engine.run()
@@ -3355,14 +3344,15 @@ class App:
                 return ("wait_for_color_area Test", msg)
 
             case "read_text":
-                # Check if PaddleOCR is available
-                if not ScriptEngine.PADDLEOCR_AVAILABLE:
+                # Check if pytesseract is available
+                if not ScriptEngine.PYTESSERACT_AVAILABLE:
                     return ("read_text Test",
-                            "PaddleOCR is not installed.\n\n"
+                            "pytesseract is not installed.\n\n"
                             "Install with:\n"
-                            "  pip install paddleocr\n\n"
-                            "If needed, install the PaddlePaddle runtime:\n"
-                            "  pip install paddlepaddle")
+                            "  pip install pytesseract\n\n"
+                            "Also install Tesseract OCR:\n"
+                            "  Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                            "  Linux: sudo apt install tesseract-ocr")
 
                 frame = self.get_latest_frame()
                 if frame is None:
