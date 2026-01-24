@@ -1179,6 +1179,7 @@ class ScriptEngine:
             "get_backend": self.get_backend,
             "get_settings": self.get_settings,
             "on_python_needed": self.on_python_needed,
+            "_timing_reference": None,  # perf_counter at start_timing for cumulative timing
         }
 
         try:
@@ -1225,6 +1226,9 @@ class ScriptEngine:
 
         # ---- pretty formatters
         def fmt_wait(c): return f"Wait {c.get('ms')} ms"
+        def fmt_start_timing(c): return "Start Timing Reference"
+        def fmt_wait_until(c): return f"Wait Until {c.get('ms')} ms elapsed"
+        def fmt_get_elapsed(c): return f"Get Elapsed -> ${c.get('out', 'elapsed')}"
         def fmt_press(c):
             btns = c.get("buttons", [])
             return f"Press {', '.join(btns) if btns else '(none)'} for {c.get('ms')} ms"
@@ -1310,9 +1314,12 @@ class ScriptEngine:
             return f"Hold Interface {', '.join(btns) if btns else '(none)'}"
         def fmt_mash(c):
             btns = c.get("buttons", [])
-            duration = c.get("duration_ms", 1000)
+            until_ms = c.get("until_ms")
             hold = c.get("hold_ms", 25)
             wait = c.get("wait_ms", 25)
+            if until_ms is not None:
+                return f"Mash {', '.join(btns) if btns else '(none)'} until {until_ms} ms (hold:{hold} ms wait:{wait} ms)"
+            duration = c.get("duration_ms", 1000)
             return f"Mash {', '.join(btns) if btns else '(none)'} for {duration} ms (hold:{hold} ms wait:{wait} ms)"
 
         def fmt_type_name(c):
@@ -1371,6 +1378,107 @@ class ScriptEngine:
             # Use high-precision interruptible sleep
             precise_sleep_interruptible(ms / 1000.0, ctx["stop"])
 
+        def cmd_start_timing(ctx, c):
+            """Set timing reference point for cumulative timing commands."""
+            ctx["_timing_reference"] = time.perf_counter()
+
+        def cmd_wait_until(ctx, c):
+            """Wait until specified ms have elapsed since start_timing.
+
+            Uses hybrid approach for maximum precision:
+            - Sleep until close to target (interruptible, low CPU)
+            - Busy-wait for final approach (high precision, removes scheduler variance)
+
+            Dynamic busy-wait threshold based on wait duration:
+            - Short waits (<1s): 100ms threshold
+            - Medium waits (1-10s): 500ms threshold
+            - Long waits (>10s): 1000ms threshold (1 second)
+            """
+            ref = ctx.get("_timing_reference")
+            target_ms = float(resolve_number(ctx, c.get("ms", 0)))
+
+            if ref is None:
+                # No reference set - fall back to regular wait
+                precise_sleep_interruptible(target_ms / 1000.0, ctx["stop"])
+                return
+
+            target_sec = target_ms / 1000.0
+
+            # Compensate for post-wait_until overhead (GUI callbacks, command dispatch)
+            # This is the time between wait_until returning and the next command executing
+            POST_CALLBACK_COMPENSATION = 0.003  # 3ms typical overhead
+
+            target_time = ref + target_sec - POST_CALLBACK_COMPENSATION
+
+            # Check if already past target
+            now = time.perf_counter()
+            if now >= target_time:
+                overrun_ms = (now - target_time) * 1000
+                print(f"[TIMING WARNING] wait_until {target_ms}ms: already {overrun_ms:.2f}ms past target")
+                ctx["vars"]["_wait_until_actual_ms"] = (now - ref) * 1000
+                return
+
+            # Dynamic busy-wait threshold based on total wait duration
+            # Longer waits need larger thresholds because Windows sleep() can be very
+            # unpredictable - a single sleep call can take 50-200ms longer than requested
+            #
+            # For short waits (<1s): 100ms threshold
+            # For medium waits (1-10s): 500ms threshold
+            # For long waits (>10s): 1000ms threshold (1 second)
+            total_wait = target_time - now
+            if total_wait > 10.0:
+                BUSY_WAIT_THRESHOLD = 1.000  # 1 second for long waits
+            elif total_wait > 1.0:
+                BUSY_WAIT_THRESHOLD = 0.500  # 500ms for medium waits
+            else:
+                BUSY_WAIT_THRESHOLD = 0.100  # 100ms for short waits
+
+            busy_wait_start = target_time - BUSY_WAIT_THRESHOLD
+
+            # Phase 1: Interruptible sleep until close to target
+            # Check stop flag every 100ms to allow interruption
+            stop_check_interval = 0.100  # Check stop every 100ms
+            last_stop_check = now
+
+            while True:
+                now = time.perf_counter()
+                remaining_to_busy = busy_wait_start - now
+
+                if remaining_to_busy <= 0:
+                    break  # Time to switch to busy-wait
+
+                # Check stop flag periodically (not every iteration)
+                if now - last_stop_check >= stop_check_interval:
+                    if ctx["stop"].is_set():
+                        return  # Interrupted
+                    last_stop_check = now
+
+                # Sleep in small chunks
+                # Use conservative sleep to avoid overshooting
+                sleep_chunk = min(remaining_to_busy, 0.010)  # 10ms chunks max
+                if sleep_chunk > 0.005:
+                    time.sleep(sleep_chunk * 0.5)  # Sleep for half the chunk
+                else:
+                    break  # Close enough, switch to busy-wait
+
+            # Phase 2: Tight busy-wait for final precision
+            # No stop checks here - we're in the critical timing window
+            target = target_time  # Local variable for faster access
+            perf_counter = time.perf_counter  # Local reference for speed
+            while perf_counter() < target:
+                pass  # Pure busy-wait, no overhead
+
+        def cmd_get_elapsed(ctx, c):
+            """Get milliseconds elapsed since start_timing."""
+            ref = ctx.get("_timing_reference")
+            out = c.get("out", "elapsed")
+
+            if ref is None:
+                ctx["vars"][out] = 0
+                return
+
+            elapsed_ms = (time.perf_counter() - ref) * 1000.0
+            ctx["vars"][out] = elapsed_ms
 
         def cmd_press(ctx, c):
             backend = ctx["get_backend"]()
@@ -2001,7 +2109,6 @@ class ScriptEngine:
                 messagebox.showerror("Command Error", "mash: buttons must be a list")
                 return
 
-            duration_ms = float(resolve_number(ctx, c.get("duration_ms", 1000)))
             hold_ms = float(resolve_number(ctx, c.get("hold_ms", 25)))
             wait_ms = float(resolve_number(ctx, c.get("wait_ms", 25)))
             use_timed_press = bool(getattr(backend, "supports_timed_press", False))
@@ -2010,9 +2117,19 @@ class ScriptEngine:
             hold_sec = hold_ms / 1000.0
             wait_sec = wait_ms / 1000.0
 
-            # Calculate end time
-            total_duration = duration_ms / 1000.0
-            end_time = time.perf_counter() + total_duration
+            # Calculate end time - support reference-based timing with until_ms
+            until_ms = c.get("until_ms")
+            ref = ctx.get("_timing_reference")
+
+            if until_ms is not None and ref is not None:
+                # Reference-based timing: mash until X ms from start_timing
+                target_sec = float(resolve_number(ctx, until_ms)) / 1000.0
+                end_time = ref + target_sec
+            else:
+                # Original duration-based timing
+                duration_ms = float(resolve_number(ctx, c.get("duration_ms", 1000)))
+                total_duration = duration_ms / 1000.0
+                end_time = time.perf_counter() + total_duration
 
             # Pause keepalive loop to prevent threading conflicts
             if hasattr(backend, "pause_keepalive"):
@@ -2020,8 +2137,18 @@ class ScriptEngine:
 
             try:
                 # Main mashing loop with precise timing
-                while time.perf_counter() < end_time:
+                # For reference-based timing, we need to be precise about when we stop
+                cycle_time = hold_sec + wait_sec
+
+                while True:
                     if ctx["stop"].is_set():
+                        break
+
+                    time_remaining = end_time - time.perf_counter()
+
+                    # Exit if we don't have enough time for even a minimal press
+                    # (need at least hold_sec to do a meaningful button press)
+                    if time_remaining < hold_sec:
                         break
 
                     # Press buttons
@@ -2030,15 +2157,16 @@ class ScriptEngine:
                     else:
                         backend.set_buttons(buttons)
 
-                    # Hold for precise duration
-                    if precise_sleep_interruptible(hold_sec, ctx["stop"]):
+                    # Hold for precise duration, but truncate if needed
+                    actual_hold = min(hold_sec, time_remaining)
+                    if precise_sleep_interruptible(actual_hold, ctx["stop"]):
                         break  # Interrupted
 
                     if not use_timed_press:
                         # Release buttons
                         backend.set_buttons([])
 
-                    # Check if we have time for a full wait cycle
+                    # Recalculate remaining time after hold
                     time_remaining = end_time - time.perf_counter()
                     if time_remaining <= 0:
                         break
@@ -2390,6 +2518,37 @@ class ScriptEngine:
                 order=10
             ),
             CommandSpec(
+                "start_timing", [], cmd_start_timing,
+                doc="Set timing reference point for cumulative timing commands (wait_until, mash until_ms).",
+                arg_schema=[],
+                format_fn=fmt_start_timing,
+                group="Timing",
+                order=5,
+                exportable=True
+            ),
+            CommandSpec(
+                "wait_until", ["ms"], cmd_wait_until,
+                doc="Wait until specified ms have elapsed since start_timing. Compensates for all overhead.",
+                arg_schema=[
+                    {"key": "ms", "type": "json", "default": 1000, "help": "Target elapsed time in milliseconds from start_timing"}
+                ],
+                format_fn=fmt_wait_until,
+                group="Timing",
+                order=15,
+                exportable=True
+            ),
+            CommandSpec(
+                "get_elapsed", ["out"], cmd_get_elapsed,
+                doc="Store milliseconds elapsed since start_timing in a variable.",
+                arg_schema=[
+                    {"key": "out", "type": "str", "default": "elapsed", "help": "Variable name to store result (no $)"}
+                ],
+                format_fn=fmt_get_elapsed,
+                group="Timing",
+                order=20,
+                exportable=True
+            ),
+            CommandSpec(
                 "press", ["buttons", "ms"], cmd_press,
                 doc="Press buttons for ms, then release to neutral.",
                 arg_schema=[
@@ -2409,11 +2568,12 @@ class ScriptEngine:
                 order=20
             ),
             CommandSpec(
-                "mash", ["buttons", "duration_ms"], cmd_mash,
-                doc="Rapidly mash buttons for a duration. Default: ~20 presses/second.",
+                "mash", ["buttons"], cmd_mash,
+                doc="Rapidly mash buttons for a duration. Use until_ms with start_timing for reference-based timing. Default: ~20 presses/second.",
                 arg_schema=[
                     {"key": "buttons", "type": "buttons", "default": ["A"], "help": "Buttons to mash"},
-                    {"key": "duration_ms", "type": "json", "default": 1000, "help": "Total mashing duration in milliseconds"},
+                    {"key": "duration_ms", "type": "json", "default": 1000, "help": "Total mashing duration in milliseconds (ignored if until_ms is set)"},
+                    {"key": "until_ms", "type": "json", "default": None, "help": "Target elapsed time from start_timing (overrides duration_ms)"},
                     {"key": "hold_ms", "type": "json", "default": 25, "help": "How long to hold each press (default: 25ms)"},
                     {"key": "wait_ms", "type": "json", "default": 25, "help": "Wait between presses (default: 25ms)"},
                 ],

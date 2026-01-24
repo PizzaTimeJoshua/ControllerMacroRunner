@@ -10,12 +10,21 @@
   {
     "cmd": "set",
     "var": "PlayerName",
-    "value": "Joshua"
+    "value": "May"
   },
   {
     "cmd": "set",
     "var": "Gender",
-    "value": "Boy"
+    "value": "Girl"
+  },
+  {
+    "cmd": "comment",
+    "text": "Treeko. Torchic, Mudkip"
+  },
+  {
+    "cmd": "set",
+    "var": "Starter",
+    "value": "Treecko"
   },
   {
     "cmd": "comment",
@@ -48,15 +57,6 @@
     "cmd": "set",
     "var": "SR_TID",
     "value": false
-  },
-  {
-    "cmd": "comment",
-    "text": "Treeko. Torchic, Mudkip"
-  },
-  {
-    "cmd": "set",
-    "var": "Starter",
-    "value": "Mudkip"
   },
   {
     "cmd": "comment",
@@ -124,13 +124,14 @@
     "buttons": [
       "A"
     ],
-    "duration_ms": 5000,
+    "duration_ms": 5200,
+    "until_ms": null,
     "hold_ms": 25,
     "wait_ms": 25
   },
   {
     "cmd": "wait",
-    "ms": 1500
+    "ms": 1700
   },
   {
     "cmd": "comment",
@@ -142,6 +143,10 @@
       "Down"
     ],
     "ms": 80
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
   },
   {
     "cmd": "press",
@@ -227,34 +232,29 @@
     "button_hold_ms": 50
   },
   {
-    "cmd": "wait",
-    "ms": 100
-  },
-  {
     "cmd": "comment",
-    "text": "Mash + Wait until SID Frame"
+    "text": "Cumulative Timing: Mash + Wait until SID Frame"
   },
   {
     "cmd": "set",
-    "var": "wait_for_SID",
-    "value": "=$frame * ($SID_Frame - 50) - 11000"
+    "var": "sid_target_ms",
+    "value": "=$frame * ($SID_Frame - 50) "
+  },
+  {
+    "cmd": "start_timing"
   },
   {
     "cmd": "mash",
     "buttons": [
       "A"
     ],
-    "duration_ms": 10000,
+    "until_ms": 10100,
     "hold_ms": 25,
     "wait_ms": 25
   },
   {
-    "cmd": "wait",
-    "ms": 1000
-  },
-  {
-    "cmd": "wait",
-    "ms": "$wait_for_SID"
+    "cmd": "wait_until",
+    "ms": "$sid_target_ms"
   },
   {
     "cmd": "press",
@@ -599,14 +599,22 @@
     "text": "Assign Wall Clock to Current Time"
   },
   {
+    "cmd": "set",
+    "var": "clock_wait_ms",
+    "value": "=$clock_frames * $frame"
+  },
+  {
+    "cmd": "start_timing"
+  },
+  {
     "cmd": "hold",
     "buttons": [
       "Right"
     ]
   },
   {
-    "cmd": "wait",
-    "ms": "=$clock_frames * $frame"
+    "cmd": "wait_until",
+    "ms": "$clock_wait_ms"
   },
   {
     "cmd": "press",
@@ -1175,9 +1183,13 @@
     "name": "Hunt"
   },
   {
+    "cmd": "comment",
+    "text": "Cumulative Timing: Reset to Shiny Frame A Press"
+  },
+  {
     "cmd": "set",
-    "var": "shiny_wait",
-    "value": "=$frame * ($shiny_frame - $offset) - 9900"
+    "var": "shiny_target_ms",
+    "value": "=$frame * ($shiny_frame - $offset)"
   },
   {
     "cmd": "press",
@@ -1190,21 +1202,20 @@
     "ms": 80
   },
   {
-    "cmd": "wait",
-    "ms": 1000
+    "cmd": "start_timing"
   },
   {
     "cmd": "mash",
     "buttons": [
       "A"
     ],
-    "duration_ms": 7500,
+    "until_ms": 8580,
     "hold_ms": 25,
     "wait_ms": 25
   },
   {
-    "cmd": "wait",
-    "ms": 1000
+    "cmd": "wait_until",
+    "ms": 9580
   },
   {
     "cmd": "if",
@@ -1223,7 +1234,7 @@
     "cmd": "if",
     "left": "$Starter",
     "op": "==",
-    "right": "Treeko"
+    "right": "Treecko"
   },
   {
     "cmd": "press",
@@ -1263,12 +1274,8 @@
     "ms": 100
   },
   {
-    "cmd": "wait",
-    "ms": 100
-  },
-  {
-    "cmd": "wait",
-    "ms": "$shiny_wait"
+    "cmd": "wait_until",
+    "ms": "$shiny_target_ms"
   },
   {
     "cmd": "press",
