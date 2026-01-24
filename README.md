@@ -108,21 +108,20 @@ py -m pip install numpy pillow pyserial
 ### Step 3: Install Optional Dependencies
 
 ```bat
-py -m pip install pyaudio pytesseract opencv-python
+py -m pip install pyaudio paddleocr opencv-python
 ```
 
 **Optional packages:**
 | Package | Purpose | Link |
 |---------|---------|------|
 | pyaudio | Audio streaming/passthrough | [PyPI](https://pypi.org/project/PyAudio/) |
-| pytesseract | OCR text recognition | [PyPI](https://pypi.org/project/pytesseract/) |
+| paddleocr | OCR text recognition | [PyPI](https://pypi.org/project/paddleocr/) |
 | opencv-python | Advanced image processing for OCR | [PyPI](https://pypi.org/project/opencv-python/) |
 
 **Note for PyAudio on Windows:** If pip install fails, download the appropriate wheel from [Unofficial Windows Binaries](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio).
 
-**Note for pytesseract:** You also need to install Tesseract OCR:
-- **Option A: Bundled (Recommended)** - Place `tesseract.exe` in the `bin/` folder (auto-detected)
-- **Option B: System PATH** - Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) and add to PATH
+**Note for PaddleOCR:** The first OCR call downloads model files to your user cache (typically `~/.paddleocr`).
+If installation fails, install the PaddlePaddle runtime first: `pip install paddlepaddle`.
 
 ### Step 4: Install FFmpeg
 
@@ -159,8 +158,7 @@ ControllerMacroRunner/
   py_scripts/             # Custom Python helpers - auto-created
   bin/
     ffmpeg.exe            # FFmpeg binary
-    tesseract.exe         # Tesseract OCR binary (optional)
-    *.dll                 # FFmpeg/Tesseract dependencies
+    *.dll                 # FFmpeg dependencies
 ```
 
 ---
@@ -520,7 +518,7 @@ Wait until the average color in a region matches or doesn't match a target color
 | out | string | "match" | Variable to store boolean result (true if condition met, false if timeout) |
 
 #### read_text
-OCR a region of the camera frame (requires pytesseract).
+OCR a region of the camera frame (requires PaddleOCR).
 
 ```json
 {"cmd": "read_text", "x": 50, "y": 100, "width": 200, "height": 30, "out": "text"}
@@ -533,7 +531,7 @@ OCR a region of the camera frame (requires pytesseract).
 | scale | int | 4 | Upscale factor (higher = better for small fonts) |
 | threshold | int | 0 | Binary threshold (0 = auto OTSU) |
 | invert | bool | false | Invert colors for light-on-dark text |
-| psm | int | 7 | Tesseract page segmentation mode |
+| psm | int | 7 | Segmentation hint (7=single line, 6=block, 13=raw) |
 | whitelist | string | "" | Allowed characters (e.g., "0123456789") |
 
 #### save_frame
@@ -785,7 +783,7 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | find_area_color | No | Requires camera |
 | wait_for_color | No | Requires camera |
 | wait_for_color_area | No | Requires camera |
-| read_text | No | Requires camera + pytesseract |
+| read_text | No | Requires camera + PaddleOCR |
 | label/goto | No | Not compatible with structured code |
 | tap_touch | No | 3DS-specific |
 | set_left_stick | No | Requires stick backend |
@@ -895,10 +893,10 @@ Click **Keybinds...** to open the keybind configuration window:
 
 ### OCR Issues (read_text)
 
-**pytesseract not found:**
-1. Install pytesseract: `pip install pytesseract`
-2. Install Tesseract OCR from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
-3. Place `tesseract.exe` in the `bin/` folder (recommended), or add to your PATH
+**PaddleOCR not found:**
+1. Install PaddleOCR: `pip install paddleocr`
+2. If needed, install PaddlePaddle: `pip install paddlepaddle`
+3. Run `read_text` once to download the OCR models (cached under `~/.paddleocr`)
 
 **Poor recognition:**
 - Increase the `scale` parameter (4-8 for pixel fonts)
@@ -1015,5 +1013,5 @@ This project is provided as-is for personal use. See individual component licens
 
 - [insideGadgets](https://shop.insidegadgets.com/) for the USB Wireless TX hardware
 - [FFmpeg](https://ffmpeg.org/) for video capture capabilities
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for text recognition
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for text recognition
 - [Pokemon Automation](https://pokemonautomation.github.io/index.html) for inspiration and controller compatibility

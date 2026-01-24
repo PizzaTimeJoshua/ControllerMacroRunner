@@ -24,19 +24,28 @@ import urllib.request
 import urllib.error
 import uuid
 from tkinter import messagebox
-from utils import exe_dir_path, python_path, is_python_available
+from utils import (
+    exe_dir_path,
+    python_path,
+    is_python_available,
+    create_paddleocr_instance,
+    paddleocr_call,
+    configure_paddle_env,
+)
 
-# Optional OCR support via pytesseract
+# Optional OCR support via PaddleOCR
+configure_paddle_env()
 try:
-    import pytesseract
-    from utils import tesseract_path
-    # Configure pytesseract to use bundled binary if available
-    _tesseract_cmd = tesseract_path()
-    if _tesseract_cmd != "tesseract":
-        pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
-    PYTESSERACT_AVAILABLE = True
-except ImportError:
-    PYTESSERACT_AVAILABLE = False
+    from paddleocr import PaddleOCR
+    PADDLEOCR_AVAILABLE = True
+except Exception:
+    PaddleOCR = None
+    PADDLEOCR_AVAILABLE = False
+
+_PADDLEOCR_INSTANCE = None
+_PADDLEOCR_LOCK = threading.Lock()
+_PADDLEOCR_WARMED = False
+_PADDLEOCR_WARM_LOCK = threading.Lock()
 
 # Optional OpenCV support for advanced image processing
 try:
@@ -546,6 +555,43 @@ def send_discord_webhook(url: str, payload: dict, file_tuple=None, timeout_s: in
 # OCR / Text Recognition Helpers
 # ----------------------------
 
+def warmup_paddleocr() -> bool:
+    """Preload PaddleOCR models into memory for faster first-use."""
+    if not PADDLEOCR_AVAILABLE:
+        return False
+    global _PADDLEOCR_WARMED
+    if _PADDLEOCR_WARMED:
+        return True
+
+    with _PADDLEOCR_WARM_LOCK:
+        if _PADDLEOCR_WARMED:
+            return True
+        ocr = _get_paddleocr()
+        if ocr is None:
+            return False
+
+        dummy = np.zeros((64, 128, 3), dtype=np.uint8)
+        try:
+            paddleocr_call(ocr, dummy, det=True, rec=True, cls=False)
+        except Exception:
+            try:
+                paddleocr_call(ocr, dummy, det=False, rec=True, cls=False)
+            except Exception:
+                pass
+        _PADDLEOCR_WARMED = True
+        return True
+
+def _get_paddleocr():
+    """Lazily initialize PaddleOCR to avoid startup overhead."""
+    if not PADDLEOCR_AVAILABLE:
+        return None
+    global _PADDLEOCR_INSTANCE
+    if _PADDLEOCR_INSTANCE is None:
+        with _PADDLEOCR_LOCK:
+            if _PADDLEOCR_INSTANCE is None:
+                _PADDLEOCR_INSTANCE = create_paddleocr_instance()
+    return _PADDLEOCR_INSTANCE
+
 def preprocess_for_ocr(img: Image.Image, scale: int = 4, threshold: int = 0, invert: bool = False):
     """
     Preprocess an image region for better OCR on pixel fonts.
@@ -616,17 +662,35 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
         scale: Upscale factor for preprocessing
         threshold: Binary threshold (0 = use automatic OTSU)
         invert: Invert colors for light-on-dark text
-        psm: Tesseract Page Segmentation Mode (7 = single line, 6 = single block)
+        psm: Segmentation hint (7 = single line, 6 = block) used to switch OCR modes
         whitelist: Characters to restrict OCR to (e.g., "0123456789" for numbers only)
 
     Returns:
         Recognized text string (stripped), or numeric string if whitelist is digits only
     """
-    if not PYTESSERACT_AVAILABLE:
-        raise RuntimeError("pytesseract is not installed. Install with: pip install pytesseract")
+    if not PADDLEOCR_AVAILABLE:
+        raise RuntimeError("paddleocr is not installed. Install with: pip install paddleocr")
 
     if frame_bgr is None:
         return ""
+
+    try:
+        ocr = _get_paddleocr()
+    except Exception as e:
+        raise RuntimeError(f"PaddleOCR initialization failed: {e}") from e
+
+    if ocr is None:
+        raise RuntimeError("PaddleOCR is not available.")
+
+    if os.environ.get("CMR_OCR_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        try:
+            with open("ocr_debug.log", "a", encoding="utf-8") as handle:
+                handle.write(
+                    f"[OCR] scale={scale} threshold={threshold} invert={invert} "
+                    f"psm={psm} whitelist='{whitelist}'\n"
+                )
+        except Exception:
+            pass
 
     h_frame, w_frame, _ = frame_bgr.shape
 
@@ -642,6 +706,14 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
     # Convert to RGB PIL Image
     region_rgb = region_bgr[:, :, ::-1]
     img = Image.fromarray(region_rgb)
+    img_raw = img.convert("RGB")
+    if invert:
+        img_raw = ImageOps.invert(img_raw)
+    scale = max(1, int(scale))
+    img_raw_scaled = img_raw
+    if scale > 1:
+        w_raw, h_raw = img_raw.size
+        img_raw_scaled = img_raw.resize((w_raw * scale, h_raw * scale), Image.Resampling.NEAREST)
 
     # Preprocess for OCR (returns primary and fallback images)
     img_primary, img_fallback = preprocess_for_ocr(
@@ -650,17 +722,7 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
 
     # Check if we're in numeric-only mode
     numeric_mode = (whitelist == "0123456789")
-
-    # Build tesseract config
-    config_parts = [f"--psm {psm}"]
-    if whitelist:
-        if numeric_mode:
-            # Include commonly confused characters for better recognition
-            config_parts.append("-c tessedit_char_whitelist=0123456789BSZOIl[]")
-        else:
-            config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
-
-    config = " ".join(config_parts)
+    use_detection = psm not in (7, 8, 13)
 
     def fix_numeric_confusions(text: str) -> str:
         """Fix common OCR confusions for numeric text."""
@@ -674,28 +736,170 @@ def ocr_region(frame_bgr: np.ndarray, x: int, y: int, width: int, height: int,
                 .replace('Z', '2')
                 .replace('B', '8'))
 
-    # Run OCR
-    try:
-        text = pytesseract.image_to_string(img_primary, config=config).strip()
-
+    def apply_whitelist(text: str) -> str:
+        text = text.strip()
         if numeric_mode:
             text = fix_numeric_confusions(text)
+            return re.sub(r"[^0-9]", "", text)
+        if not whitelist:
+            return text
+        allowed = set(whitelist)
+        filtered = "".join(ch for ch in text if ch in allowed or ch.isspace())
+        return filtered.strip()
 
-            # If result isn't valid digits, try fallback image
-            if not text.isdigit():
-                fallback_text = pytesseract.image_to_string(
-                    img_fallback, config=config
-                ).strip()
-                fallback_text = fix_numeric_confusions(fallback_text)
+    def pil_to_bgr(image: Image.Image) -> np.ndarray:
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        arr = np.array(image)
+        return arr[:, :, ::-1]
 
-                # Use fallback if it's valid digits
-                if fallback_text.isdigit():
-                    text = fallback_text
+    def looks_like_detection_item(item) -> bool:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return False
+        box = item[0]
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            return False
+        return all(isinstance(pt, (list, tuple)) and len(pt) == 2 for pt in box)
 
+    def looks_like_rec_item(item) -> bool:
+        return isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str)
+
+    def normalize_paddle_result(result):
+        if isinstance(result, tuple):
+            result = list(result)
+        if not isinstance(result, list) or not result:
+            return result if isinstance(result, dict) else []
+        first = result[0]
+        if looks_like_detection_item(first) or looks_like_rec_item(first):
+            return result
+        if len(result) == 1 and isinstance(first, list) and first:
+            inner_first = first[0]
+            if looks_like_detection_item(inner_first) or looks_like_rec_item(inner_first):
+                return first
+        return result
+
+    def extract_text(result, joiner_value: str) -> str:
+        items = normalize_paddle_result(result)
+        if not items:
+            return ""
+
+        if isinstance(items, dict):
+            items = [items]
+
+        texts = []
+        seen = set()
+
+        def add_text(value):
+            if value is None:
+                return
+            text_val = str(value).strip()
+            if not text_val or text_val in seen:
+                return
+            seen.add(text_val)
+            texts.append(text_val)
+
+        def collect_from_item(item):
+            if isinstance(item, dict):
+                for key in ("rec_text", "rec_texts", "text", "label", "value", "word", "words"):
+                    if key in item:
+                        collect_from_item(item[key])
+            elif isinstance(item, (list, tuple)):
+                if looks_like_detection_item(item):
+                    text_info = item[1]
+                    if isinstance(text_info, (list, tuple)) and text_info:
+                        add_text(text_info[0])
+                    return
+                if looks_like_rec_item(item):
+                    add_text(item[0])
+                    return
+                for value in item:
+                    collect_from_item(value)
+            elif isinstance(item, str):
+                add_text(item)
+
+        det_items = [item for item in items if looks_like_detection_item(item)]
+        if det_items:
+            def box_key(item):
+                box = item[0]
+                xs = [pt[0] for pt in box]
+                ys = [pt[1] for pt in box]
+                return (min(ys), min(xs))
+
+            det_items.sort(key=box_key)
+            for item in det_items:
+                collect_from_item(item)
+        else:
+            for item in items:
+                collect_from_item(item)
+
+        if texts:
+            return joiner_value.join(texts).strip()
+
+        # Fallback: try a generic traversal to capture string outputs.
+        collect_from_item(result)
+        return joiner_value.join(texts).strip()
+
+    def _ocr_debug_log(message: str):
+        if os.environ.get("CMR_OCR_DEBUG", "").strip().lower() not in ("1", "true", "yes"):
+            return
+        try:
+            with open("ocr_debug.log", "a", encoding="utf-8") as handle:
+                handle.write(message.rstrip() + "\n")
+        except Exception:
+            pass
+
+    def _safe_repr(value, max_len: int = 2000) -> str:
+        try:
+            text = repr(value)
+        except Exception:
+            text = "<unrepr-able>"
+        if len(text) > max_len:
+            return text[:max_len] + "...(truncated)"
         return text
 
-    except Exception as e:
-        raise RuntimeError(f"OCR failed: {e}")
+    def run_ocr(image: Image.Image, det_flag: bool) -> str:
+        bgr = pil_to_bgr(image)
+        local_joiner = "\n" if det_flag else " "
+        try:
+            result = paddleocr_call(ocr, bgr, det=det_flag, rec=True, cls=False)
+        except Exception as e:
+            raise RuntimeError(f"OCR failed: {e}") from e
+        _ocr_debug_log(f"[OCR] det={det_flag} result={_safe_repr(result)}")
+        return extract_text(result, local_joiner)
+
+    attempts = []
+    if use_detection:
+        attempts = [
+            (img_primary, True),
+            (img_fallback, True),
+            (img_raw_scaled, True),
+            (img, True),
+            (img_primary, False),
+        ]
+    else:
+        attempts = [
+            (img_primary, False),
+            (img_fallback, False),
+            (img_raw_scaled, False),
+            (img_primary, True),
+            (img_raw_scaled, True),
+            (img, False),
+        ]
+
+    best_text = ""
+    for attempt_img, det_flag in attempts:
+        candidate = apply_whitelist(run_ocr(attempt_img, det_flag))
+        _ocr_debug_log(f"[OCR] det={det_flag} candidate='{candidate}'")
+        if numeric_mode:
+            if candidate.isdigit():
+                return candidate
+        else:
+            if candidate:
+                return candidate
+        if candidate and not best_text:
+            best_text = candidate
+
+    return best_text
 
 
 def run_python_main(script_path, args, timeout_s=10):
@@ -2806,7 +3010,7 @@ class ScriptEngine:
             ),
             CommandSpec(
                 "read_text", ["x", "y", "width", "height", "out"], cmd_read_text,
-                doc="OCR a region of the camera frame to extract text. Uses pytesseract with preprocessing for pixel fonts.",
+                doc="OCR a region of the camera frame to extract text. Uses PaddleOCR with preprocessing for pixel fonts.",
                 arg_schema=[
                     {"key": "x", "type": "int", "default": 0, "help": "X coordinate (top-left corner)"},
                     {"key": "y", "type": "int", "default": 0, "help": "Y coordinate (top-left corner)"},
@@ -2816,7 +3020,7 @@ class ScriptEngine:
                     {"key": "scale", "type": "int", "default": 4, "help": "Upscale factor (higher = better for small fonts)"},
                     {"key": "threshold", "type": "int", "default": 0, "help": "Binary threshold 0-255 (0 = disabled)"},
                     {"key": "invert", "type": "bool", "default": False, "help": "Invert colors (for light text on dark)"},
-                    {"key": "psm", "type": "int", "default": 7, "help": "Tesseract PSM (7=single line, 6=block, 13=raw)"},
+                    {"key": "psm", "type": "int", "default": 7, "help": "Segmentation hint (7=single line, 6=block, 13=raw)"},
                     {"key": "whitelist", "type": "str", "default": "", "help": "Allowed chars (e.g. '0123456789' for numbers)"},
                 ],
                 format_fn=fmt_read_text,
@@ -2824,7 +3028,7 @@ class ScriptEngine:
                 order=20,
                 test=True,
                 exportable=False,
-                export_note="Requires camera frame and pytesseract which are unsupported in standalone export."
+                export_note="Requires camera frame and PaddleOCR which are unsupported in standalone export."
             ),
             CommandSpec(
                 "save_frame",
