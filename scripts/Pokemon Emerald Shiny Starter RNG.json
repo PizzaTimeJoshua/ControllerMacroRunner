@@ -17,8 +17,8 @@
     "cmd": "prompt_input",
     "title": "Player Name",
     "message": "Enter Player Name:",
-    "default": "Red",
-    "confirm": true,
+    "default": "Brendan",
+    "confirm": false,
     "out": "PlayerName"
   },
   {
@@ -37,7 +37,7 @@
     ],
     "default": "Boy",
     "display": "buttons",
-    "confirm": true,
+    "confirm": false,
     "out": "Gender"
   },
   {
@@ -61,7 +61,7 @@
     ],
     "default": "Torchic",
     "display": "buttons",
-    "confirm": true,
+    "confirm": false,
     "out": "Starter"
   },
   {
@@ -74,8 +74,8 @@
   },
   {
     "cmd": "set",
-    "var": "RefreshRate",
-    "value": 59.7275
+    "var": "_RefreshRate",
+    "value": 59.727500569606
   },
   {
     "cmd": "comment",
@@ -100,7 +100,7 @@
   },
   {
     "cmd": "set",
-    "var": "SID_Frame",
+    "var": "_SID_frame",
     "value": 750
   },
   {
@@ -109,8 +109,8 @@
   },
   {
     "cmd": "set",
-    "var": "frame",
-    "value": "=1000 / $RefreshRate"
+    "var": "_frame",
+    "value": "=1000 / $_RefreshRate"
   },
   {
     "cmd": "label",
@@ -248,8 +248,8 @@
   },
   {
     "cmd": "set",
-    "var": "sid_target_ms",
-    "value": "=$frame * ($SID_Frame - 50) "
+    "var": "_sid_target_ms",
+    "value": "=$_frame * ($_SID_frame - 50) "
   },
   {
     "cmd": "start_timing"
@@ -265,7 +265,7 @@
   },
   {
     "cmd": "wait_until",
-    "ms": "$sid_target_ms"
+    "ms": "$_sid_target_ms"
   },
   {
     "cmd": "press",
@@ -347,9 +347,9 @@
     "file": "gen3_sid_from_tid.py",
     "args": [
       "$TID",
-      "$SID_Frame"
+      "$_SID_frame"
     ],
-    "out": "SIDs",
+    "out": "_Possible_SIDs",
     "timeout_s": 10
   },
   {
@@ -535,7 +535,29 @@
     "buttons": [
       "Right"
     ],
+    "ms": 50
+  },
+  {
+    "cmd": "wait",
     "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 50
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 50
   },
   {
     "cmd": "end_if"
@@ -551,14 +573,36 @@
     "buttons": [
       "Left"
     ],
+    "ms": 50
+  },
+  {
+    "cmd": "wait",
     "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 50
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 50
   },
   {
     "cmd": "end_if"
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 300
   },
   {
     "cmd": "press",
@@ -588,7 +632,7 @@
     "cmd": "run_python",
     "file": "rse_clock_frames.py",
     "args": [],
-    "out": "clock_frames",
+    "out": "_clock_frames",
     "timeout_s": 10
   },
   {
@@ -597,8 +641,8 @@
   },
   {
     "cmd": "set",
-    "var": "clock_wait_ms",
-    "value": "=$clock_frames * $frame"
+    "var": "_clock_wait_ms",
+    "value": "=$_clock_frames * $_frame"
   },
   {
     "cmd": "start_timing"
@@ -611,7 +655,7 @@
   },
   {
     "cmd": "wait_until",
-    "ms": "$clock_wait_ms"
+    "ms": "$_clock_wait_ms"
   },
   {
     "cmd": "press",
@@ -663,7 +707,18 @@
     "buttons": [
       "Right"
     ],
-    "ms": 450
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Right"
+    ],
+    "ms": 100
   },
   {
     "cmd": "end_if"
@@ -679,7 +734,18 @@
     "buttons": [
       "Left"
     ],
-    "ms": 450
+    "ms": 100
+  },
+  {
+    "cmd": "wait",
+    "ms": 500
+  },
+  {
+    "cmd": "press",
+    "buttons": [
+      "Left"
+    ],
+    "ms": 100
   },
   {
     "cmd": "end_if"
@@ -1117,28 +1183,8 @@
     "ms": 100
   },
   {
-    "cmd": "export_json",
-    "filename": "TID_SIDs.json",
-    "vars": [
-      "TID",
-      "SIDs"
-    ]
-  },
-  {
-    "cmd": "export_json",
-    "filename": "starter.json",
-    "vars": [
-      "Starter"
-    ]
-  },
-  {
     "cmd": "comment",
     "text": "Ready to RNG Starter"
-  },
-  {
-    "cmd": "set",
-    "var": "offset",
-    "value": 0
   },
   {
     "cmd": "label",
@@ -1146,13 +1192,18 @@
   },
   {
     "cmd": "set",
-    "var": "SID",
-    "value": "$SIDs[0]"
+    "var": "offset",
+    "value": 0
   },
   {
     "cmd": "set",
-    "var": "SIDs",
-    "value": "=$SIDs.pop(0)"
+    "var": "SID",
+    "value": "$_Possible_SIDs[0]"
+  },
+  {
+    "cmd": "set",
+    "var": "_Possible_SIDs",
+    "value": "=$_Possible_SIDs.pop(0)"
   },
   {
     "cmd": "wait",
@@ -1185,34 +1236,42 @@
   },
   {
     "cmd": "set",
-    "var": "shiny_target_ms",
-    "value": "=$frame * ($shiny_frame - $offset)"
+    "var": "_shiny_target_ms",
+    "value": "=$_frame * ($shiny_frame - $offset)"
   },
   {
-    "cmd": "press",
+    "cmd": "hold",
     "buttons": [
       "A",
       "B",
       "Start",
       "Select"
-    ],
-    "ms": 80
+    ]
+  },
+  {
+    "cmd": "wait",
+    "ms": 100
   },
   {
     "cmd": "start_timing"
+  },
+  {
+    "cmd": "hold",
+    "buttons": []
   },
   {
     "cmd": "mash",
     "buttons": [
       "A"
     ],
-    "until_ms": 8580,
+    "duration_ms": 1000,
+    "until_ms": 8500,
     "hold_ms": 25,
     "wait_ms": 25
   },
   {
     "cmd": "wait_until",
-    "ms": 9580
+    "ms": 9600
   },
   {
     "cmd": "if",
@@ -1268,17 +1327,20 @@
     "buttons": [
       "A"
     ],
-    "ms": 100
+    "ms": 40
   },
   {
     "cmd": "wait_until",
-    "ms": "$shiny_target_ms"
+    "ms": "$_shiny_target_ms"
   },
   {
-    "cmd": "press",
+    "cmd": "hold",
     "buttons": [
       "A"
-    ],
+    ]
+  },
+  {
+    "cmd": "wait",
     "ms": 100
   },
   {
@@ -1377,17 +1439,18 @@
     "right": false
   },
   {
-    "cmd": "read_text",
-    "x": 226,
-    "y": 303,
-    "width": 96,
-    "height": 36,
-    "out": "nature",
-    "scale": 1,
-    "threshold": 0,
-    "invert": false,
-    "psm": 7,
-    "whitelist": ""
+    "cmd": "play_sound",
+    "sound": "alert1.mp3",
+    "volume": 100,
+    "wait": false
+  },
+  {
+    "cmd": "prompt_input",
+    "title": "Nature",
+    "message": "Enter Nature",
+    "default": "",
+    "confirm": true,
+    "out": "Nature"
   },
   {
     "cmd": "press",
@@ -1406,7 +1469,7 @@
     "y": 151,
     "width": 51,
     "height": 40,
-    "out": "HP",
+    "out": "_HP",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1419,7 +1482,7 @@
     "y": 189,
     "width": 59,
     "height": 44,
-    "out": "ATK",
+    "out": "_ATK",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1432,7 +1495,7 @@
     "y": 237,
     "width": 72,
     "height": 36,
-    "out": "DEF",
+    "out": "_DEF",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1445,7 +1508,7 @@
     "y": 149,
     "width": 50,
     "height": 42,
-    "out": "SPA",
+    "out": "_SPA",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1458,7 +1521,7 @@
     "y": 192,
     "width": 56,
     "height": 41,
-    "out": "SPD",
+    "out": "_SPD",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1471,7 +1534,7 @@
     "y": 234,
     "width": 40,
     "height": 39,
-    "out": "SPE",
+    "out": "_SPE",
     "scale": 1,
     "threshold": 180,
     "invert": false,
@@ -1486,38 +1549,38 @@
       "$SID",
       "0x0",
       "$shiny_frame",
-      20,
+      30,
       1,
       "$Starter",
       5,
-      "$nature",
+      "$Nature",
       [
-        "$HP",
-        "$ATK",
-        "$DEF",
-        "$SPA",
-        "$SPD",
-        "$SPE"
+        "$_HP",
+        "$_ATK",
+        "$_DEF",
+        "$_SPA",
+        "$_SPD",
+        "$_SPE"
       ]
     ],
-    "out": "frame_hit_results",
+    "out": "_frame_hit_results",
     "timeout_s": 1000
   },
   {
     "cmd": "set",
-    "var": "new_offset",
-    "value": "=$frame_hit_results.get(\"best_offset\")"
+    "var": "_new_offset",
+    "value": "=$_frame_hit_results.get(\"best_offset\")"
   },
   {
     "cmd": "if",
-    "left": "$new_offset",
+    "left": "$_new_offset",
     "op": "!=",
     "right": 0
   },
   {
     "cmd": "set",
     "var": "offset",
-    "value": "=$new_offset + $offset"
+    "value": "=$_new_offset + $offset"
   },
   {
     "cmd": "goto",
@@ -1532,7 +1595,7 @@
   },
   {
     "cmd": "if",
-    "left": "$SIDs",
+    "left": "$_Possible_SIDs",
     "op": "!=",
     "right": []
   },

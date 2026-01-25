@@ -1300,19 +1300,30 @@ class App:
 
         # --- Vars
         vars_box = ttk.LabelFrame(right_split, text="Variables")
-        vars_box.rowconfigure(0, weight=1)
+        vars_box.rowconfigure(1, weight=1)
         vars_box.columnconfigure(0, weight=1)
+
+        self.show_hidden_vars = tk.BooleanVar(value=False)
+        vars_header = ttk.Frame(vars_box)
+        vars_header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        vars_header.columnconfigure(0, weight=1)
+        self.vars_toggle_btn = ttk.Button(
+            vars_header,
+            text="Show _vars",
+            command=self._toggle_hidden_vars
+        )
+        self.vars_toggle_btn.pack(side="right")
 
         self.vars_tree = ttk.Treeview(vars_box, columns=("name", "value"), show="headings")
         self.vars_tree.heading("name", text="name")
         self.vars_tree.heading("value", text="value")
         self.vars_tree.column("name", width=140, anchor="w")
         self.vars_tree.column("value", width=360, anchor="w")
-        self.vars_tree.grid(row=0, column=0, sticky="nsew")
+        self.vars_tree.grid(row=1, column=0, sticky="nsew")
 
         vsc = ttk.Scrollbar(vars_box, orient="vertical", command=self.vars_tree.yview)
         self.vars_tree.configure(yscrollcommand=vsc.set)
-        vsc.grid(row=0, column=1, sticky="ns")
+        vsc.grid(row=1, column=1, sticky="ns")
 
         # Add panes
         right_split.add(script_box, minsize=220)
@@ -2996,8 +3007,19 @@ class App:
 
     def refresh_vars_view(self):
         self.vars_tree.delete(*self.vars_tree.get_children())
+        show_hidden = bool(self.show_hidden_vars.get())
         for k, v in sorted(self.engine.vars.items(), key=lambda kv: kv[0]):
+            if not show_hidden and str(k).startswith("_"):
+                continue
             self.vars_tree.insert("", "end", values=(k, json.dumps(v, ensure_ascii=False)))
+
+    def _toggle_hidden_vars(self):
+        self.show_hidden_vars.set(not self.show_hidden_vars.get())
+        if self.show_hidden_vars.get():
+            self.vars_toggle_btn.configure(text="Hide _vars")
+        else:
+            self.vars_toggle_btn.configure(text="Show _vars")
+        self.refresh_vars_view()
 
     def run_script(self):
         # Turn off keyboard control so we don't fight the script
