@@ -787,6 +787,8 @@ DEFAULT_SETTINGS = {
         "variable_fg": "#8cc9a4",
         "math_fg": "#f2c374",
         "filepath_fg": "#ff6b6b",
+        "label_fg": "#8cc9a4",
+        "timing_fg": "#f2c374",
         "selected_bg": "#1f2b24",
     },
     "confirm_delete": True,

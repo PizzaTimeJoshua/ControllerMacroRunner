@@ -43,6 +43,8 @@ THEME_KEY_LABELS = {
     "variable_fg": "Variable Text",
     "math_fg": "Math Text",
     "filepath_fg": "File Path Text",
+    "label_fg": "Label Text",
+    "timing_fg": "Timing Text",
     "selected_bg": "Selected Line",
 }
 

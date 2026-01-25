@@ -93,6 +93,8 @@ THEME_COLORS = {
         "variable_fg": "#0066CC",
         "math_fg": "#b58900",
         "filepath_fg": "#CC0000",
+        "label_fg": "#0f766e",
+        "timing_fg": "#d97706",
         "selected_bg": "#e0e0e0",
     },
     "dark": {
@@ -120,6 +122,8 @@ THEME_COLORS = {
         "variable_fg": "#7fb2ff",
         "math_fg": "#f2c374",
         "filepath_fg": "#ff6b6b",
+        "label_fg": "#4fd1c5",
+        "timing_fg": "#f4a259",
         "selected_bg": "#24303d",
     },
 }
@@ -634,6 +638,8 @@ class App:
         self.script_text.tag_configure("variable", foreground=colors["variable_fg"])
         self.script_text.tag_configure("math", foreground=colors["math_fg"])
         self.script_text.tag_configure("filepath", foreground=colors["filepath_fg"])
+        self.script_text.tag_configure("label", foreground=colors["label_fg"])
+        self.script_text.tag_configure("timing", foreground=colors["timing_fg"])
         self.script_text.tag_configure("selected", background=colors["selected_bg"])
 
     def _stop_theme_poll(self):
@@ -1318,6 +1324,8 @@ class App:
         self.script_text.tag_configure("variable", foreground="#0066CC")  # Blue
         self.script_text.tag_configure("math", foreground="#b58900")  # Yellow
         self.script_text.tag_configure("filepath", foreground="#CC0000")  # Red
+        self.script_text.tag_configure("label", foreground="#0f766e")  # Teal
+        self.script_text.tag_configure("timing", foreground="#d97706")  # Orange
         self.script_text.tag_configure("selected", background="#e0e0e0")  # Selected line
         self.script_text.tag_raise("variable", "math")
         self.script_text.tag_raise("filepath", "variable")
@@ -2921,6 +2929,11 @@ class App:
                 content_start_col = 7
                 line_num = i + 1  # Text widget is 1-indexed
 
+                if cmd == "label":
+                    self.script_text.tag_add("label", line_start, line_end)
+                elif cmd == "start_timing":
+                    self.script_text.tag_add("timing", line_start, line_end)
+
                 math_exprs = []
                 _collect_math_exprs(c, math_exprs)
                 if math_exprs:
@@ -2937,25 +2950,30 @@ class App:
                     var_end = f"{line_num}.{content_start_col + match.end()}"
                     self.script_text.tag_add("variable", var_start, var_end)
 
-                # Highlight file paths for run_python and discord_status commands
+                # Highlight file paths for supported commands
+                def _highlight_path(token):
+                    if token is None:
+                        return
+                    token_text = str(token)
+                    if not token_text:
+                        return
+                    haystack = line_text[content_start_col:]
+                    idx = haystack.find(token_text)
+                    if idx >= 0:
+                        fp_start = f"{line_num}.{content_start_col + idx}"
+                        fp_end = f"{line_num}.{content_start_col + idx + len(token_text)}"
+                        self.script_text.tag_add("filepath", fp_start, fp_end)
+
                 if cmd == "run_python":
-                    filepath = c.get("file", "")
-                    if filepath:
-                        haystack = line_text[content_start_col:]
-                        idx = haystack.find(filepath)
-                        if idx >= 0:
-                            fp_start = f"{line_num}.{content_start_col + idx}"
-                            fp_end = f"{line_num}.{content_start_col + idx + len(filepath)}"
-                            self.script_text.tag_add("filepath", fp_start, fp_end)
+                    _highlight_path(c.get("file", ""))
                 elif cmd == "discord_status":
-                    image_path = c.get("image", "")
-                    if image_path:
-                        haystack = line_text[content_start_col:]
-                        idx = haystack.find(image_path)
-                        if idx >= 0:
-                            fp_start = f"{line_num}.{content_start_col + idx}"
-                            fp_end = f"{line_num}.{content_start_col + idx + len(image_path)}"
-                            self.script_text.tag_add("filepath", fp_start, fp_end)
+                    _highlight_path(c.get("image", ""))
+                elif cmd == "export_json":
+                    _highlight_path(c.get("filename", ""))
+                elif cmd == "import_json":
+                    _highlight_path(c.get("filename", ""))
+                elif cmd == "play_sound":
+                    _highlight_path(c.get("sound", ""))
 
             # Increase indent AFTER printing for opening blocks
             if indent_on and cmd in ("if", "while"):

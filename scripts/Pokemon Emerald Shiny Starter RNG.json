@@ -95,6 +95,11 @@
   },
   {
     "cmd": "set",
+    "var": "tries",
+    "value": 0
+  },
+  {
+    "cmd": "set",
     "var": "SID_Frame",
     "value": 750
   },
@@ -1359,6 +1364,11 @@
     ],
     "tol": 10.0,
     "out": "shiny_found"
+  },
+  {
+    "cmd": "add",
+    "var": "tries",
+    "value": 1
   },
   {
     "cmd": "if",
