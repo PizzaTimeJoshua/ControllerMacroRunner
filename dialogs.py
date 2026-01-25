@@ -872,6 +872,39 @@ class CommandEditorDialog(tk.Toplevel):
                     self.field_vars[key] = var
                     self.widgets[key] = ent
 
+                case "volume":
+                    try:
+                        vol = float(init_val)
+                    except (TypeError, ValueError):
+                        vol = 80.0
+                    vol = max(0.0, min(100.0, vol))
+                    var = tk.DoubleVar(value=vol)
+
+                    frame = ttk.Frame(self.fields_frame)
+                    frame.grid(row=r, column=1, sticky="ew", pady=3)
+
+                    scale = ttk.Scale(
+                        frame,
+                        from_=0,
+                        to=100,
+                        orient="horizontal",
+                        variable=var,
+                        style="Volume.Horizontal.TScale"
+                    )
+                    scale.pack(side="left", fill="x", expand=True)
+
+                    val_label = ttk.Label(frame, width=4)
+                    val_label.pack(side="left", padx=(6, 0))
+
+                    def update_label(var=var, label=val_label):
+                        label.configure(text=str(int(round(var.get()))))
+
+                    update_label()
+                    var.trace_add("write", lambda *args, fn=update_label: fn())
+
+                    self.field_vars[key] = var
+                    self.widgets[key] = scale
+
                 case "str":
                     var = tk.StringVar(value=str(init_val))
                     ent = ttk.Entry(self.fields_frame, textvariable=var, width=30)
@@ -1083,6 +1116,13 @@ class CommandEditorDialog(tk.Toplevel):
             case "float":
                 return float(raw.strip())
 
+            case "volume":
+                try:
+                    val = int(round(float(var.get())))
+                except (TypeError, ValueError):
+                    return 0
+                return max(0, min(100, val))
+
             case "str":
                 return str(raw)
 
@@ -1202,6 +1242,10 @@ class CommandEditorDialog(tk.Toplevel):
 
         try:
             title, msg = self.test_callback(cmd_obj)
+            if title is None or msg is None:
+                return
+            if not title and not msg:
+                return
             messagebox.showinfo(title, msg, parent=self)
         except Exception as e:
             messagebox.showerror("Test error", str(e), parent=self)

@@ -517,6 +517,18 @@ class App:
             "TScrollbar",
             background=[("active", colors["select_bg"])],
         )
+        self.style.configure(
+            "Volume.Horizontal.TScale",
+            background=colors["button_bg"],
+            troughcolor=colors["pane_bg"],
+            bordercolor=outline,
+            lightcolor=outline,
+            darkcolor=outline,
+        )
+        self.style.map(
+            "Volume.Horizontal.TScale",
+            background=[("active", colors["select_bg"])],
+        )
         self.root.option_add("*TCombobox*Listbox.background", colors["tree_bg"])
         self.root.option_add("*TCombobox*Listbox.foreground", colors["tree_fg"])
         self.root.option_add("*TCombobox*Listbox.selectBackground", colors["select_bg"])
@@ -3405,6 +3417,21 @@ class App:
                 )
                 return ("read_text Test", msg)
 
+            case "play_sound":
+                sound = cmd_obj.get("sound", "")
+                volume_raw = self._resolve_test_value(cmd_obj.get("volume", 80))
+                wait = bool(self._resolve_test_value(cmd_obj.get("wait", False)))
+
+                try:
+                    volume = int(round(float(volume_raw)))
+                except (TypeError, ValueError):
+                    volume = 80
+                volume = max(0, min(100, volume))
+
+                ok, msg = ScriptEngine.play_sound_file(sound, volume=volume, wait=wait)
+                self.set_status(msg)
+                return (None, None)
+
             case _:
                 raise ValueError("No tester implemented for this command.")
 
@@ -3412,7 +3439,7 @@ class App:
         # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color" | "find_area_color" | "wait_for_color" | "wait_for_color_area" | "read_text":
+            case "find_color" | "find_area_color" | "wait_for_color" | "wait_for_color_area" | "read_text" | "play_sound":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")

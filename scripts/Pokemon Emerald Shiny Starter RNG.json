@@ -142,22 +142,22 @@
     "buttons": [
       "Down"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 140
   },
   {
     "cmd": "press",
     "buttons": [
       "A"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 10000
+    "ms": 10040
   },
   {
     "cmd": "mash",
@@ -187,11 +187,11 @@
     "buttons": [
       "Down"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 1000
+    "ms": 1040
   },
   {
     "cmd": "end_if"
@@ -201,22 +201,22 @@
     "buttons": [
       "A"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 800
+    "ms": 840
   },
   {
     "cmd": "press",
     "buttons": [
       "A"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 2000
+    "ms": 2040
   },
   {
     "cmd": "comment",
@@ -276,33 +276,33 @@
     "buttons": [
       "Start"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 140
   },
   {
     "cmd": "press",
     "buttons": [
       "Down"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 140
   },
   {
     "cmd": "press",
     "buttons": [
       "A"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 3000
+    "ms": 3040
   },
   {
     "cmd": "read_text",
@@ -364,22 +364,22 @@
     "buttons": [
       "B"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 3000
+    "ms": 3040
   },
   {
     "cmd": "press",
     "buttons": [
       "Down"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 140
   },
   {
     "cmd": "mash",
@@ -399,22 +399,22 @@
     "buttons": [
       "Up"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 100
+    "ms": 140
   },
   {
     "cmd": "press",
     "buttons": [
       "A"
     ],
-    "ms": 80
+    "ms": 40
   },
   {
     "cmd": "wait",
-    "ms": 200
+    "ms": 240
   },
   {
     "cmd": "comment",
@@ -538,7 +538,7 @@
     "buttons": [
       "Right"
     ],
-    "ms": 500
+    "ms": 400
   },
   {
     "cmd": "end_if"
@@ -554,7 +554,7 @@
     "buttons": [
       "Left"
     ],
-    "ms": 500
+    "ms": 400
   },
   {
     "cmd": "end_if"

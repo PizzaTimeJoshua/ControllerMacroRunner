@@ -43,6 +43,21 @@ def ffmpeg_path() -> str:
     return "ffmpeg"  # fallback to PATH
 
 
+def ffplay_path() -> str:
+    """Get path to ffplay executable."""
+    # Check 1: PyInstaller temp folder (if bundled with --add-data)
+    bundled = resource_path("bin/ffmpeg/ffplay.exe")
+    if os.path.exists(bundled):
+        return bundled
+
+    # Check 2: Directory next to the executable (for external bin folder)
+    exe_local = exe_dir_path("bin/ffmpeg/ffplay.exe")
+    if os.path.exists(exe_local):
+        return exe_local
+
+    return "ffplay"  # fallback to PATH
+
+
 def tesseract_path() -> str:
     """Get path to tesseract executable."""
     # Check 1: PyInstaller temp folder (if bundled with --add-data)
@@ -56,6 +71,39 @@ def tesseract_path() -> str:
         return exe_local
 
     return "tesseract"  # fallback to PATH
+
+
+# ----------------------------
+# Sound Helpers
+# ----------------------------
+
+SOUNDS_DIR = "bin/sounds"
+SOUND_EXTENSIONS = (".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a")
+
+
+def list_sound_files():
+    """List sound files in the bin/sounds folder."""
+    for base in (resource_path(SOUNDS_DIR), exe_dir_path(SOUNDS_DIR)):
+        if not os.path.isdir(base):
+            continue
+        files = [
+            name for name in os.listdir(base)
+            if name.lower().endswith(SOUND_EXTENSIONS)
+        ]
+        if files:
+            return sorted(files)
+    return []
+
+
+def find_sound_file(filename: str) -> str | None:
+    """Find a sound file in bin/sounds across bundled or local paths."""
+    if not filename:
+        return None
+    rel_path = os.path.join(SOUNDS_DIR, filename)
+    for candidate in (resource_path(rel_path), exe_dir_path(rel_path)):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 # ----------------------------
@@ -79,7 +127,7 @@ TESSERACT_DIR = "bin/Tesseract-OCR"
 TESSERACT_VERSION = "5.5.0"
 
 # Tessdata language files (eng.traineddata required for OCR)
-TESSDATA_ENG_URL = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
+TESSDATA_ENG_URL = "https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata"
 
 
 # ----------------------------

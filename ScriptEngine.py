@@ -24,7 +24,7 @@ import urllib.request
 import urllib.error
 import uuid
 from tkinter import messagebox
-from utils import exe_dir_path, python_path, is_python_available
+from utils import exe_dir_path, python_path, is_python_available, ffplay_path, find_sound_file, list_sound_files
 
 # Optional OCR support via pytesseract
 try:
@@ -540,6 +540,71 @@ def send_discord_webhook(url: str, payload: dict, file_tuple=None, timeout_s: in
         raise RuntimeError(msg) from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"Discord webhook error: {e.reason}") from e
+
+
+# ----------------------------
+# Sound Playback Helpers
+# ----------------------------
+
+def play_sound_file(sound_name: str, volume: int = 80, wait: bool = False,
+                    stop_event: threading.Event | None = None) -> tuple[bool, str]:
+    """
+    Play a sound from bin/sounds using ffplay.
+    Returns (ok, message).
+    """
+    name = os.path.basename(str(sound_name or "")).strip()
+    if not name:
+        return False, "play_sound: sound is empty"
+
+    sound_path = find_sound_file(name)
+    if not sound_path:
+        return False, f"play_sound: sound not found: {name}"
+
+    try:
+        volume_val = int(round(float(volume)))
+    except (TypeError, ValueError):
+        volume_val = 100
+    volume_val = max(0, min(100, volume_val))
+
+    ffplay = ffplay_path()
+    args = [ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", "-volume", str(volume_val), sound_path]
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    try:
+        if wait:
+            proc = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags
+            )
+            stopped = False
+            while proc.poll() is None:
+                if stop_event is not None and stop_event.is_set():
+                    stopped = True
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    break
+                time.sleep(0.05)
+            if stopped:
+                return True, f"play_sound: stopped {name}"
+        else:
+            subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags
+            )
+    except FileNotFoundError:
+        return False, "play_sound: ffplay not found. Install FFmpeg or place it in bin/ffmpeg."
+    except Exception as e:
+        return False, f"play_sound: {e}"
+
+    action = "Played" if wait else "Playing"
+    return True, f"{action} {name} at volume {volume_val}."
 
 
 # ----------------------------
@@ -1285,6 +1350,12 @@ class ScriptEngine:
                 flags.append(f"image={image}")
             flag_str = f" ({', '.join(flags)})" if flags else ""
             return f"DiscordStatus {msg!r}{flag_str}"
+        def fmt_play_sound(c):
+            sound = c.get("sound", "")
+            wait = bool(c.get("wait", False))
+            volume = c.get("volume", 80)
+            suffix = " (wait)" if wait else ""
+            return f"PlaySound {sound!r} vol={volume}{suffix}"
         def fmt_save_frame(c):
             name = c.get("filename", "")
             out = (c.get("out") or "").strip()
@@ -1920,6 +1991,20 @@ class ScriptEngine:
             send_discord_webhook(webhook_url, payload, file_tuple=file_tuple)
             self.status_cb("Discord status sent.")
 
+        def cmd_play_sound(ctx, c):
+            sound_raw = c.get("sound", default_sound)
+            sound_val = resolve_value(ctx, sound_raw)
+            sound_name = "" if sound_val is None else str(sound_val).strip()
+            if not sound_name:
+                sound_name = default_sound
+            wait = bool(resolve_value(ctx, c.get("wait", False)))
+            volume_raw = c.get("volume", 80)
+            volume_val = resolve_number(ctx, volume_raw)
+
+            ok, msg = play_sound_file(sound_name, volume=volume_val, wait=wait, stop_event=ctx.get("stop"))
+            if not ok:
+                messagebox.showerror("Command Error", msg)
+
         def cmd_save_frame(ctx, c):
             frame = ctx["get_frame"]()
             if frame is None:
@@ -2500,6 +2585,11 @@ class ScriptEngine:
             {"key": "right", "type": "json", "default": True, "help": "Right operand (literal or $var)"},
         ]
 
+        sound_choices = list_sound_files()
+        if not sound_choices:
+            sound_choices = ["alert1.mp3"]
+        default_sound = sound_choices[0]
+
         specs = [
             CommandSpec(
                 "comment", ["text"], cmd_comment,
@@ -2872,6 +2962,23 @@ class ScriptEngine:
                 order=20,
                 exportable=False,
                 export_note="Uses Discord webhooks and local files, unsupported in standalone export."
+            ),
+            CommandSpec(
+                "play_sound",
+                [],
+                cmd_play_sound,
+                doc="Play an alert sound from bin/sounds using ffplay at the specified volume.",
+                arg_schema=[
+                    {"key": "sound", "type": "choice", "choices": sound_choices, "default": default_sound, "help": "Sound filename in bin/sounds"},
+                    {"key": "volume", "type": "volume", "default": 80, "help": "Volume 0-100"},
+                    {"key": "wait", "type": "bool", "default": False, "help": "Wait until the sound finishes playing"},
+                ],
+                format_fn=fmt_play_sound,
+                group="Custom",
+                order=30,
+                test=True,
+                exportable=False,
+                export_note="Audio playback is not supported in standalone export."
             ),
             CommandSpec(
                 "tap_touch",
