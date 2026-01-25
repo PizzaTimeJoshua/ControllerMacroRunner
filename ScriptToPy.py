@@ -59,6 +59,8 @@ def export_script_to_python(self):
         "set_circle_pad", "reset_circle_pad", "set_c_stick", "reset_c_stick",
         "press_ir", "hold_ir", "press_interface", "hold_interface",
         "play_sound",
+        "prompt_input",
+        "prompt_choice",
     }
 
     for i, c in enumerate(commands):

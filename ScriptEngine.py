@@ -23,7 +23,7 @@ import mimetypes
 import urllib.request
 import urllib.error
 import uuid
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 from utils import exe_dir_path, python_path, is_python_available, ffplay_path, find_sound_file, list_sound_files
 
 # Optional OCR support via pytesseract
@@ -1045,7 +1045,8 @@ def eval_expr(ctx, expr: str):
 
 class ScriptEngine:
     def __init__(self, serial_ctrl, get_frame_fn, status_cb=None, on_ip_update=None, on_tick=None,
-                 settings_getter=None, on_python_needed=None, on_error=None):
+                 settings_getter=None, on_python_needed=None, on_error=None, on_prompt_input=None,
+                 on_prompt_choice=None):
         self.serial = serial_ctrl
         self.get_frame = get_frame_fn
         self.status_cb = status_cb or (lambda s: None)
@@ -1053,6 +1054,8 @@ class ScriptEngine:
         self.on_tick = on_tick or (lambda: None)
         self.on_python_needed = on_python_needed or (lambda: None)
         self.on_error = on_error or (lambda title, msg: None)
+        self.on_prompt_input = on_prompt_input
+        self.on_prompt_choice = on_prompt_choice
 
         self.vars = {}
         self.commands = []
@@ -1244,6 +1247,8 @@ class ScriptEngine:
             "get_backend": self.get_backend,
             "get_settings": self.get_settings,
             "on_python_needed": self.on_python_needed,
+            "prompt_input": self.on_prompt_input,
+            "prompt_choice": self.on_prompt_choice,
             "_timing_reference": None,  # perf_counter at start_timing for cumulative timing
         }
 
@@ -1350,6 +1355,15 @@ class ScriptEngine:
                 flags.append(f"image={image}")
             flag_str = f" ({', '.join(flags)})" if flags else ""
             return f"DiscordStatus {msg!r}{flag_str}"
+        def fmt_prompt_input(c):
+            message = c.get("message", "")
+            out = c.get("out", "input")
+            return f"PromptInput {message!r} -> ${out}"
+        def fmt_prompt_choice(c):
+            message = c.get("message", "")
+            display = c.get("display", "dropdown")
+            out = c.get("out", "choice")
+            return f"PromptChoice {message!r} ({display}) -> ${out}"
         def fmt_play_sound(c):
             sound = c.get("sound", "")
             wait = bool(c.get("wait", False))
@@ -1990,6 +2004,157 @@ class ScriptEngine:
 
             send_discord_webhook(webhook_url, payload, file_tuple=file_tuple)
             self.status_cb("Discord status sent.")
+
+        def cmd_prompt_input(ctx, c):
+            out = (c.get("out") or "input").strip()
+            if not out:
+                messagebox.showerror("Command Error", "prompt_input: out variable is empty")
+                return
+
+            title_raw = c.get("title", "Input")
+            message_raw = c.get("message", "Enter value:")
+            default_raw = c.get("default", "")
+            confirm_raw = c.get("confirm", False)
+
+            title_val = resolve_value(ctx, title_raw)
+            message_val = resolve_value(ctx, message_raw)
+            default_val = resolve_value(ctx, default_raw)
+            confirm_val = bool(resolve_value(ctx, confirm_raw))
+
+            title = str(title_val) if title_val is not None else "Input"
+            prompt = str(message_val) if message_val is not None else "Enter value:"
+            default_display = "" if default_val is None else str(default_val)
+            title = title.strip() or "Input"
+            prompt = prompt.strip() or "Enter value:"
+
+            result = None
+            prompt_cb = ctx.get("prompt_input")
+            if callable(prompt_cb):
+                try:
+                    result = prompt_cb(title, prompt, default_display, confirm_val)
+                except Exception as e:
+                    messagebox.showerror("Command Error", f"prompt_input: {e}")
+                    return
+            else:
+                current = default_display
+                while True:
+                    result = simpledialog.askstring(
+                        title=title,
+                        prompt=prompt,
+                        initialvalue=current,
+                    )
+                    if result is None:
+                        break
+                    if not confirm_val:
+                        break
+                    confirm_msg = f"Use this value?\n\n{result}"
+                    if messagebox.askyesno("Confirm Input", confirm_msg):
+                        break
+                    current = result
+
+            if result is None:
+                ctx["vars"][out] = default_val if default_val is not None else ""
+                return
+
+            ctx["vars"][out] = result
+
+        def cmd_prompt_choice(ctx, c):
+            out = (c.get("out") or "choice").strip()
+            if not out:
+                messagebox.showerror("Command Error", "prompt_choice: out variable is empty")
+                return
+
+            title_raw = c.get("title", "Choose")
+            message_raw = c.get("message", "Select a value:")
+            choices_raw = c.get("choices", [])
+            default_raw = c.get("default", None)
+            confirm_raw = c.get("confirm", False)
+            display_raw = c.get("display", "dropdown")
+
+            title_val = resolve_value(ctx, title_raw)
+            message_val = resolve_value(ctx, message_raw)
+            default_val = resolve_value(ctx, default_raw)
+            confirm_val = bool(resolve_value(ctx, confirm_raw))
+            display_val = resolve_value(ctx, display_raw)
+
+            title = str(title_val) if title_val is not None else "Choose"
+            prompt = str(message_val) if message_val is not None else "Select a value:"
+            title = title.strip() or "Choose"
+            prompt = prompt.strip() or "Select a value:"
+            display_mode = str(display_val).strip().lower() if display_val is not None else "dropdown"
+            if display_mode not in ("dropdown", "buttons"):
+                display_mode = "dropdown"
+
+            # Resolve choices list
+            if isinstance(choices_raw, str) and choices_raw.strip().startswith("$"):
+                choices_val = resolve_value(ctx, choices_raw.strip())
+            else:
+                choices_val = choices_raw
+            if isinstance(choices_val, str):
+                try:
+                    parsed = json.loads(choices_val)
+                    choices_val = parsed
+                except Exception:
+                    pass
+            if isinstance(choices_val, list):
+                choices_val = resolve_vars_deep(ctx, choices_val)
+            if not isinstance(choices_val, list):
+                messagebox.showerror("Command Error", "prompt_choice: choices must be a list")
+                return
+            if not choices_val:
+                messagebox.showerror("Command Error", "prompt_choice: choices list is empty")
+                return
+
+            default_index = None
+            if default_val is not None:
+                try:
+                    default_index = choices_val.index(default_val)
+                except ValueError:
+                    default_index = None
+            if default_index is None:
+                default_index = 0
+
+            result = None
+            prompt_cb = ctx.get("prompt_choice")
+            if callable(prompt_cb):
+                try:
+                    result = prompt_cb(title, prompt, choices_val, default_index, confirm_val, display_mode)
+                except Exception as e:
+                    messagebox.showerror("Command Error", f"prompt_choice: {e}")
+                    return
+            else:
+                current_index = default_index
+                display_choices = [str(x) for x in choices_val]
+                while True:
+                    choices_text = "\n".join(f"- {x}" for x in display_choices)
+                    result_text = simpledialog.askstring(
+                        title=title,
+                        prompt=f"{prompt}\n\n{choices_text}\n\nType one of the values above:",
+                        initialvalue=display_choices[current_index],
+                    )
+                    if result_text is None:
+                        result = None
+                        break
+                    if result_text in display_choices:
+                        result = display_choices.index(result_text)
+                    else:
+                        messagebox.showerror("Invalid Choice", "Please enter one of the listed choices.")
+                        continue
+                    if not confirm_val:
+                        break
+                    confirm_msg = f"Use this value?\n\n{display_choices[result]}"
+                    if messagebox.askyesno("Confirm Choice", confirm_msg):
+                        break
+                    current_index = result
+
+            if result is None:
+                ctx["vars"][out] = default_val if default_val is not None else ""
+                return
+
+            if isinstance(result, int) and 0 <= result < len(choices_val):
+                ctx["vars"][out] = choices_val[result]
+            else:
+                ctx["vars"][out] = result
 
         def cmd_play_sound(ctx, c):
             sound_raw = c.get("sound", default_sound)
@@ -2962,6 +3127,46 @@ class ScriptEngine:
                 order=20,
                 exportable=False,
                 export_note="Uses Discord webhooks and local files, unsupported in standalone export."
+            ),
+            CommandSpec(
+                "prompt_input",
+                ["out"],
+                cmd_prompt_input,
+                doc="Prompt the user for input and store the result in a variable.",
+                arg_schema=[
+                    {"key": "title", "type": "str", "default": "Input", "help": "Prompt window title (supports $var)"},
+                    {"key": "message", "type": "str", "default": "Enter value:", "help": "Prompt message (supports $var)"},
+                    {"key": "default", "type": "str", "default": "", "help": "Default value if canceled (supports $var)"},
+                    {"key": "confirm", "type": "bool", "default": False, "help": "Confirm the entered value before saving"},
+                    {"key": "out", "type": "str", "default": "input", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_prompt_input,
+                group="Custom",
+                order=25,
+                test=True,
+                exportable=False,
+                export_note="User prompts are not supported in standalone export."
+            ),
+            CommandSpec(
+                "prompt_choice",
+                ["choices", "out"],
+                cmd_prompt_choice,
+                doc="Prompt the user to choose from a list and store the result in a variable.",
+                arg_schema=[
+                    {"key": "title", "type": "str", "default": "Choose", "help": "Prompt window title (supports $var)"},
+                    {"key": "message", "type": "str", "default": "Select a value:", "help": "Prompt message (supports $var)"},
+                    {"key": "choices", "type": "json", "default": ["Option 1", "Option 2"], "help": "List of choices (supports $var for list)"},
+                    {"key": "default", "type": "str", "default": "", "help": "Default value if canceled (supports $var)"},
+                    {"key": "display", "type": "choice", "choices": ["dropdown", "buttons"], "default": "dropdown", "help": "Choice display style"},
+                    {"key": "confirm", "type": "bool", "default": False, "help": "Confirm the selection before saving"},
+                    {"key": "out", "type": "str", "default": "choice", "help": "Variable name to store result (no $)"},
+                ],
+                format_fn=fmt_prompt_choice,
+                group="Custom",
+                order=27,
+                test=True,
+                exportable=False,
+                export_note="User prompts are not supported in standalone export."
             ),
             CommandSpec(
                 "play_sound",

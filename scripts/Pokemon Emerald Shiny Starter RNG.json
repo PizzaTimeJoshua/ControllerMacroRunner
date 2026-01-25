@@ -8,55 +8,61 @@
     "text": "Must Have Text Speed to Fast"
   },
   {
-    "cmd": "set",
-    "var": "PlayerName",
-    "value": "Kalo"
+    "cmd": "play_sound",
+    "sound": "alert1.mp3",
+    "volume": 100,
+    "wait": false
   },
   {
-    "cmd": "set",
-    "var": "Gender",
-    "value": "Boy"
+    "cmd": "prompt_input",
+    "title": "Player Name",
+    "message": "Enter Player Name:",
+    "default": "Red",
+    "confirm": true,
+    "out": "PlayerName"
+  },
+  {
+    "cmd": "play_sound",
+    "sound": "alert1.mp3",
+    "volume": 100,
+    "wait": false
+  },
+  {
+    "cmd": "prompt_choice",
+    "title": "Gender",
+    "message": "Select Gender:",
+    "choices": [
+      "Boy",
+      "Girl"
+    ],
+    "default": "Boy",
+    "display": "buttons",
+    "confirm": true,
+    "out": "Gender"
   },
   {
     "cmd": "comment",
-    "text": "Treeko. Torchic, Mudkip"
+    "text": "Treecko. Torchic, Mudkip"
   },
   {
-    "cmd": "set",
-    "var": "Starter",
-    "value": "Torchic"
+    "cmd": "play_sound",
+    "sound": "alert1.mp3",
+    "volume": 100,
+    "wait": false
   },
   {
-    "cmd": "comment",
-    "text": "TID you want to SR for"
-  },
-  {
-    "cmd": "set",
-    "var": "desired_tids",
-    "value": [
-      "00069",
-      "42069",
-      "11111",
-      "00000",
-      "00001",
-      "12345",
-      "00002",
-      "00777",
-      "00007",
-      "65535",
-      "13579",
-      "31415",
-      "271828",
-      "00420",
-      "00073",
-      "58008",
-      "60223"
-    ]
-  },
-  {
-    "cmd": "set",
-    "var": "SR_TID",
-    "value": false
+    "cmd": "prompt_choice",
+    "title": "Starter Choice",
+    "message": "Choose your Starter:",
+    "choices": [
+      "Treecko",
+      "Torchic",
+      "Mudkip"
+    ],
+    "default": "Torchic",
+    "display": "buttons",
+    "confirm": true,
+    "out": "Starter"
   },
   {
     "cmd": "comment",
@@ -318,32 +324,18 @@
     "whitelist": "0123456789"
   },
   {
-    "cmd": "if",
-    "left": "$SR_TID",
-    "op": "==",
-    "right": true
+    "cmd": "play_sound",
+    "sound": "alert1.mp3",
+    "volume": 100,
+    "wait": false
   },
   {
-    "cmd": "contains",
-    "needle": "$TID",
-    "haystack": "$desired_tids",
-    "out": "found_tid"
-  },
-  {
-    "cmd": "if",
-    "left": "$found_tid",
-    "op": "==",
-    "right": false
-  },
-  {
-    "cmd": "goto",
-    "label": "hunt_tid"
-  },
-  {
-    "cmd": "end_if"
-  },
-  {
-    "cmd": "end_if"
+    "cmd": "prompt_input",
+    "title": "Trainer ID",
+    "message": "Enter Trainer ID:",
+    "default": "$TID",
+    "confirm": true,
+    "out": "TID"
   },
   {
     "cmd": "run_python",
@@ -538,7 +530,7 @@
     "buttons": [
       "Right"
     ],
-    "ms": 400
+    "ms": 500
   },
   {
     "cmd": "end_if"
@@ -554,7 +546,7 @@
     "buttons": [
       "Left"
     ],
-    "ms": 400
+    "ms": 500
   },
   {
     "cmd": "end_if"
@@ -1545,9 +1537,9 @@
     "cmd": "end_if"
   },
   {
-    "cmd": "discord_status",
-    "message": "Program Complete!",
-    "ping": true,
-    "image": "$frame"
+    "cmd": "play_sound",
+    "sound": "shiny1.mp3",
+    "volume": 100,
+    "wait": false
   }
 ]

@@ -132,6 +132,7 @@ THEME_COLORS = {
 class App:
     def __init__(self, root):
         self.root = root
+        self._ui_thread = threading.current_thread()
         self.script_path = None
         self.dirty = False
         self._status_queue = queue.Queue()
@@ -253,6 +254,8 @@ class App:
             on_tick=self.on_engine_tick,
             on_python_needed=self.on_python_needed,
             on_error=self.on_script_error,
+            on_prompt_input=self.on_prompt_input,
+            on_prompt_choice=self.on_prompt_choice,
         )
 
         # Output backend selection
@@ -678,6 +681,343 @@ class App:
             self._status_queue.put_nowait(msg)
         except Exception:
             pass
+
+    def on_prompt_input(self, title, message, default_display, confirm):
+        if not self.root.winfo_exists():
+            return None
+        if threading.current_thread() == self._ui_thread:
+            return self._prompt_input_with_confirm(title, message, default_display, confirm)
+
+        result = {"value": None}
+        done = threading.Event()
+
+        def show_dialog():
+            try:
+                result["value"] = self._prompt_input_with_confirm(title, message, default_display, confirm)
+            finally:
+                done.set()
+
+        self.root.after(0, show_dialog)
+        done.wait()
+        return result["value"]
+
+    def on_prompt_choice(self, title, message, choices, default_index, confirm, display_mode):
+        if not self.root.winfo_exists():
+            return None
+        if threading.current_thread() == self._ui_thread:
+            return self._prompt_choice_with_confirm(title, message, choices, default_index, confirm, display_mode)
+
+        result = {"value": None}
+        done = threading.Event()
+
+        def show_dialog():
+            try:
+                result["value"] = self._prompt_choice_with_confirm(title, message, choices, default_index, confirm, display_mode)
+            finally:
+                done.set()
+
+        self.root.after(0, show_dialog)
+        done.wait()
+        return result["value"]
+
+    def _prompt_input_with_confirm(self, title, message, default_display, confirm):
+        title = "" if title is None else str(title)
+        message = "" if message is None else str(message)
+        current = "" if default_display is None else str(default_display)
+        while True:
+            result = self._show_themed_input_dialog(title, message, current)
+            if result is None:
+                return None
+            if not confirm:
+                return result
+            confirm_msg = f"Use this value?\n\n{result}"
+            if self._show_themed_confirm_dialog("Confirm Input", confirm_msg):
+                return result
+            current = result
+
+    def _prompt_choice_with_confirm(self, title, message, choices, default_index, confirm, display_mode):
+        title = "" if title is None else str(title)
+        message = "" if message is None else str(message)
+        choices_list = [] if choices is None else list(choices)
+        if not choices_list:
+            return None
+
+        display = "" if display_mode is None else str(display_mode)
+        display = display.strip().lower()
+        if display not in ("dropdown", "buttons"):
+            display = "dropdown"
+
+        current_index = default_index if isinstance(default_index, int) else 0
+        if not (0 <= current_index < len(choices_list)):
+            current_index = 0
+
+        while True:
+            result_index = self._show_themed_choice_dialog(
+                title, message, choices_list, current_index, display
+            )
+            if result_index is None:
+                return None
+            if not confirm:
+                return result_index
+            chosen = choices_list[result_index]
+            confirm_msg = f"Use this value?\n\n{chosen}"
+            if self._show_themed_confirm_dialog("Confirm Choice", confirm_msg):
+                return result_index
+            current_index = result_index
+
+    def _show_themed_input_dialog(self, title, message, initial_value):
+        colors = self._theme_colors or THEME_COLORS.get("light", {})
+        bg = colors.get("bg", self.root.cget("bg"))
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title or "Input")
+        dlg.configure(bg=bg)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        dlg.columnconfigure(0, weight=1)
+
+        frame = ttk.Frame(dlg, padding=12)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+
+        msg = message if message else "Enter value:"
+        msg = str(msg)
+        ttk.Label(frame, text=msg, wraplength=420, justify="left").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+
+        var = tk.StringVar(value=initial_value or "")
+        entry = ttk.Entry(frame, textvariable=var, width=40)
+        entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 10))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=2, column=0, columnspan=2, sticky="e")
+
+        result = {"value": None}
+
+        def on_ok():
+            result["value"] = var.get()
+            dlg.destroy()
+
+        def on_cancel():
+            result["value"] = None
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text="OK", command=on_ok).pack(side="right")
+
+        dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+        dlg.bind("<Return>", lambda _e: on_ok())
+        dlg.bind("<Escape>", lambda _e: on_cancel())
+
+        entry.focus_set()
+        entry.selection_range(0, tk.END)
+        dlg.update_idletasks()
+        try:
+            root_x = self.root.winfo_rootx()
+            root_y = self.root.winfo_rooty()
+            root_w = self.root.winfo_width()
+            root_h = self.root.winfo_height()
+            dlg_w = dlg.winfo_width()
+            dlg_h = dlg.winfo_height()
+            x = max(0, int(root_x + (root_w - dlg_w) / 2))
+            y = max(0, int(root_y + (root_h - dlg_h) / 2))
+            dlg.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+        self.root.wait_window(dlg)
+        return result["value"]
+
+    def _show_themed_choice_dialog(self, title, message, choices, default_index, display_mode):
+        colors = self._theme_colors or THEME_COLORS.get("light", {})
+        bg = colors.get("bg", self.root.cget("bg"))
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title or "Choose")
+        dlg.configure(bg=bg)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        dlg.columnconfigure(0, weight=1)
+
+        frame = ttk.Frame(dlg, padding=12)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+
+        msg = message if message else "Select a value:"
+        msg = str(msg)
+        ttk.Label(frame, text=msg, wraplength=420, justify="left").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+
+        values = [str(v) for v in choices]
+        result = {"index": None}
+        display = (display_mode or "dropdown").strip().lower()
+        if display not in ("dropdown", "buttons"):
+            display = "dropdown"
+
+        if display == "buttons":
+            buttons_frame = ttk.Frame(frame)
+            buttons_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 10))
+
+            def choose_columns(count, max_cols=3):
+                max_cols = min(max_cols, count)
+                best_cols = 1
+                best_empty = None
+                best_rows = None
+                for cols in range(1, max_cols + 1):
+                    rows = math.ceil(count / cols)
+                    last = count - cols * (rows - 1)
+                    empty = cols - last
+                    if (
+                        best_empty is None
+                        or empty < best_empty
+                        or (empty == best_empty and rows < best_rows)
+                    ):
+                        best_cols = cols
+                        best_empty = empty
+                        best_rows = rows
+                return best_cols
+
+            columns = choose_columns(len(values), 3)
+
+            for col in range(columns):
+                buttons_frame.columnconfigure(col, weight=1)
+
+            def choose(idx):
+                result["index"] = idx
+                dlg.destroy()
+
+            total = len(values)
+            rows = math.ceil(total / columns) if columns else 0
+            for row in range(rows):
+                start = row * columns
+                end = min(total, start + columns)
+                items_in_row = end - start
+                offset = (columns - items_in_row) // 2 if items_in_row < columns else 0
+                for i in range(start, end):
+                    col = offset + (i - start)
+                    ttk.Button(
+                        buttons_frame,
+                        text=values[i],
+                        command=lambda idx=i: choose(idx)
+                    ).grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+            def on_cancel():
+                result["index"] = None
+                dlg.destroy()
+
+            dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+            dlg.bind("<Escape>", lambda _e: on_cancel())
+        else:
+            var = tk.StringVar()
+            combo = ttk.Combobox(
+                frame,
+                textvariable=var,
+                values=values,
+                state="readonly",
+                width=40
+            )
+            combo.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 10))
+
+            if 0 <= default_index < len(values):
+                combo.current(default_index)
+            elif values:
+                combo.current(0)
+
+            btn_frame = ttk.Frame(frame)
+            btn_frame.grid(row=2, column=0, columnspan=2, sticky="e")
+
+            def on_ok():
+                idx = combo.current()
+                result["index"] = idx if idx >= 0 else None
+                dlg.destroy()
+
+            def on_cancel():
+                result["index"] = None
+                dlg.destroy()
+
+            ttk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side="right", padx=(6, 0))
+            ttk.Button(btn_frame, text="OK", command=on_ok).pack(side="right")
+
+            dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+            dlg.bind("<Return>", lambda _e: on_ok())
+            dlg.bind("<Escape>", lambda _e: on_cancel())
+
+            combo.focus_set()
+        dlg.update_idletasks()
+        try:
+            root_x = self.root.winfo_rootx()
+            root_y = self.root.winfo_rooty()
+            root_w = self.root.winfo_width()
+            root_h = self.root.winfo_height()
+            dlg_w = dlg.winfo_width()
+            dlg_h = dlg.winfo_height()
+            x = max(0, int(root_x + (root_w - dlg_w) / 2))
+            y = max(0, int(root_y + (root_h - dlg_h) / 2))
+            dlg.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+
+        self.root.wait_window(dlg)
+        return result["index"]
+
+    def _show_themed_confirm_dialog(self, title, message):
+        colors = self._theme_colors or THEME_COLORS.get("light", {})
+        bg = colors.get("bg", self.root.cget("bg"))
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title or "Confirm")
+        dlg.configure(bg=bg)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        dlg.columnconfigure(0, weight=1)
+
+        frame = ttk.Frame(dlg, padding=12)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+
+        msg = "" if message is None else str(message)
+        ttk.Label(frame, text=msg, wraplength=420, justify="left").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
+
+        result = {"value": False}
+
+        def on_yes():
+            result["value"] = True
+            dlg.destroy()
+
+        def on_no():
+            result["value"] = False
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text="No", command=on_no).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_frame, text="Yes", command=on_yes).pack(side="right")
+
+        dlg.protocol("WM_DELETE_WINDOW", on_no)
+        dlg.bind("<Return>", lambda _e: on_yes())
+        dlg.bind("<Escape>", lambda _e: on_no())
+
+        dlg.update_idletasks()
+        try:
+            root_x = self.root.winfo_rootx()
+            root_y = self.root.winfo_rooty()
+            root_w = self.root.winfo_width()
+            root_h = self.root.winfo_height()
+            dlg_w = dlg.winfo_width()
+            dlg_h = dlg.winfo_height()
+            x = max(0, int(root_x + (root_w - dlg_w) / 2))
+            y = max(0, int(root_y + (root_h - dlg_h) / 2))
+            dlg.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+        self.root.wait_window(dlg)
+        return result["value"]
 
     # ---- engine tick (live vars)
     def on_engine_tick(self):
@@ -3432,6 +3772,100 @@ class App:
                 self.set_status(msg)
                 return (None, None)
 
+            case "prompt_input":
+                title_raw = cmd_obj.get("title", "Input")
+                message_raw = cmd_obj.get("message", "Enter value:")
+                default_raw = cmd_obj.get("default", "")
+                confirm_raw = cmd_obj.get("confirm", False)
+                out = (cmd_obj.get("out") or "input").strip()
+
+                title_val = self._resolve_test_value(title_raw)
+                message_val = self._resolve_test_value(message_raw)
+                default_val = self._resolve_test_value(default_raw)
+                confirm_val = bool(self._resolve_test_value(confirm_raw))
+
+                title = str(title_val) if title_val is not None else "Input"
+                prompt = str(message_val) if message_val is not None else "Enter value:"
+                default_display = "" if default_val is None else str(default_val)
+                result = self.on_prompt_input(title, prompt, default_display, confirm_val)
+
+                stored = result
+                status_prefix = "Would store"
+                if result is None:
+                    stored = default_val if default_val is not None else ""
+                    status_prefix = "Canceled prompt. Would store default"
+
+                display_value = "" if stored is None else str(stored)
+                if out:
+                    self.set_status(f"{status_prefix} ${out} = {display_value!r}")
+                else:
+                    self.set_status(f"{status_prefix} {display_value!r}")
+                return (None, None)
+
+            case "prompt_choice":
+                title_raw = cmd_obj.get("title", "Choose")
+                message_raw = cmd_obj.get("message", "Select a value:")
+                choices_raw = cmd_obj.get("choices", [])
+                default_raw = cmd_obj.get("default", None)
+                confirm_raw = cmd_obj.get("confirm", False)
+                display_raw = cmd_obj.get("display", "dropdown")
+                out = (cmd_obj.get("out") or "choice").strip()
+
+                title_val = self._resolve_test_value(title_raw)
+                message_val = self._resolve_test_value(message_raw)
+                default_val = self._resolve_test_value(default_raw)
+                confirm_val = bool(self._resolve_test_value(confirm_raw))
+                display_val = self._resolve_test_value(display_raw)
+
+                title = str(title_val) if title_val is not None else "Choose"
+                prompt = str(message_val) if message_val is not None else "Select a value:"
+                display = str(display_val) if display_val is not None else "dropdown"
+                display = display.strip().lower()
+                if display not in ("dropdown", "buttons"):
+                    display = "dropdown"
+
+                if isinstance(choices_raw, str) and choices_raw.strip().startswith("$"):
+                    choices_val = self._resolve_test_value(choices_raw.strip())
+                else:
+                    choices_val = choices_raw
+                if isinstance(choices_val, str):
+                    try:
+                        parsed = json.loads(choices_val)
+                        choices_val = parsed
+                    except Exception:
+                        pass
+                if not isinstance(choices_val, list):
+                    return ("prompt_choice Test", "choices must be a list.")
+                if not choices_val:
+                    return ("prompt_choice Test", "choices list is empty.")
+
+                default_index = None
+                if default_val is not None:
+                    try:
+                        default_index = choices_val.index(default_val)
+                    except ValueError:
+                        default_index = None
+                if default_index is None:
+                    default_index = 0
+
+                result_index = self.on_prompt_choice(title, prompt, choices_val, default_index, confirm_val, display)
+                stored = default_val if result_index is None else None
+                if result_index is not None and 0 <= result_index < len(choices_val):
+                    stored = choices_val[result_index]
+                if stored is None and result_index is not None:
+                    stored = result_index
+
+                status_prefix = "Would store"
+                if result_index is None:
+                    status_prefix = "Canceled prompt. Would store default"
+
+                display_value = "" if stored is None else str(stored)
+                if out:
+                    self.set_status(f"{status_prefix} ${out} = {display_value!r}")
+                else:
+                    self.set_status(f"{status_prefix} {display_value!r}")
+                return (None, None)
+
             case _:
                 raise ValueError("No tester implemented for this command.")
 
@@ -3439,7 +3873,7 @@ class App:
         # Enable for commands with test support
         cmd = cmd_obj.get("cmd")
         match cmd:
-            case "find_color" | "find_area_color" | "wait_for_color" | "wait_for_color_area" | "read_text" | "play_sound":
+            case "find_color" | "find_area_color" | "wait_for_color" | "wait_for_color_area" | "read_text" | "play_sound" | "prompt_input" | "prompt_choice":
                 return self.test_command_dialog(cmd_obj)
             case _:
                 raise ValueError("No test available for this command.")
