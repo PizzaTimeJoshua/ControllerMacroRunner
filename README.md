@@ -980,10 +980,7 @@ Use PyInstaller to create a standalone executable:
 ```bat
 python -m pip install pyinstaller
 
-python -m PyInstaller --noconsole --onedir --icon="bin/icon.ico" --clean --name ControllerMacroRunner ^
-  --add-data "scripts;scripts" ^
-  --add-data "py_scripts;py_scripts" ^
-  main.py
+python -m PyInstaller --noconsole --onedir --icon="bin/icon.ico" --clean --name ControllerMacroRunner main.py
 ```
 
 Distribute the `dist/ControllerMacroRunner/` folder as a zip file. Include the `bin/` folder with FFmpeg.
