@@ -50,7 +50,7 @@ A Windows desktop application for **high-precision gaming automation** with sub-
 
 ### Script Engine
 
-- **17 Built-in Commands** - Controller, timing, variables, control flow, and image processing
+- **40+ Built-in Commands** - Controller, timing, variables, control flow, vision, audio, and user input
 - **Variables & Expressions** - Math operations with `$variable` references
 - **Control Flow** - Labels, goto, if/end_if, while/end_while
 - **Vision Commands** - Pixel color detection (find_color) and OCR (read_text)
@@ -266,8 +266,16 @@ Rapidly press buttons for a duration.
 | duration_ms | number | 1000 | Total mashing duration |
 | hold_ms | number | 25 | Hold time per press |
 | wait_ms | number | 25 | Wait time between presses |
+| until_ms | number | 0 | If set, mash until this many ms elapsed since start_timing (overrides duration_ms) |
 
 Press rate = 1000 / (hold_ms + wait_ms) presses/second. Default is 20 presses/sec.
+
+**Timing reference mode:** Use `until_ms` with `start_timing` for frame-perfect mash sequences:
+```json
+{"cmd": "start_timing"}
+{"cmd": "mash", "buttons": ["A"], "until_ms": 2000, "hold_ms": 30, "wait_ms": 30}
+```
+This mashes A until exactly 2000ms have elapsed since start_timing.
 
 ### Timing Commands
 
@@ -277,6 +285,43 @@ Pause script execution.
 ```json
 {"cmd": "wait", "ms": 500}
 ```
+
+#### start_timing
+Set a timing reference point for cumulative timing. Used with `wait_until` for frame-perfect sequences.
+
+```json
+{"cmd": "start_timing"}
+```
+
+#### wait_until
+Wait until the specified milliseconds have elapsed since the last `start_timing`. Automatically compensates for execution overhead.
+
+```json
+{"cmd": "wait_until", "ms": 1000}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| ms | number | required | Target elapsed time since start_timing |
+
+**Example: Frame-perfect input sequence**
+```json
+{"cmd": "start_timing"}
+{"cmd": "press", "buttons": ["A"], "ms": 50}
+{"cmd": "wait_until", "ms": 500}
+{"cmd": "press", "buttons": ["B"], "ms": 50}
+{"cmd": "wait_until", "ms": 1000}
+```
+This ensures the B press happens exactly 500ms after start_timing, regardless of how long the A press took.
+
+#### get_elapsed
+Get the milliseconds elapsed since the last `start_timing`.
+
+```json
+{"cmd": "get_elapsed", "out": "elapsed"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| out | string | "elapsed" | Variable to store elapsed milliseconds |
 
 ### Variable Commands
 
@@ -413,6 +458,36 @@ Generate a random float between 0.0 and 1.0 (exclusive of 1.0).
 {"cmd": "if", "left": "$roll", "op": ">=", "right": 0.3}
   {"cmd": "press", "buttons": ["B"], "ms": 50}
 {"cmd": "end_if"}
+```
+
+#### export_json
+Export script variables to a JSON file.
+
+```json
+{"cmd": "export_json", "file": "save_data.json", "vars": ["counter", "score", "player_name"]}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| file | string | required | Output filename (relative to scripts folder or absolute path) |
+| vars | list | [] | Variable names to export (empty = export all non-internal variables) |
+
+#### import_json
+Import variables from a JSON file.
+
+```json
+{"cmd": "import_json", "file": "save_data.json"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| file | string | required | Input filename (relative to scripts folder or absolute path) |
+
+**Example: Save and restore progress**
+```json
+{"cmd": "set", "var": "counter", "value": 100}
+{"cmd": "set", "var": "score", "value": 5000}
+{"cmd": "export_json", "file": "progress.json", "vars": ["counter", "score"]}
+
+{"cmd": "import_json", "file": "progress.json"}
 ```
 
 ### Control Flow Commands
@@ -581,6 +656,65 @@ Documentation that does nothing at runtime.
 
 ```json
 {"cmd": "comment", "text": "This is a comment"}
+```
+
+### User Input Commands
+
+#### prompt_input
+Pause the script and prompt the user for text input.
+
+```json
+{"cmd": "prompt_input", "prompt": "Enter target ID:", "out": "target_id", "confirm": true}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| prompt | string | "Enter value:" | Message shown to the user |
+| out | string | "input" | Variable to store the entered value |
+| confirm | bool | false | If true, show confirmation dialog before continuing |
+
+#### prompt_choice
+Pause the script and prompt the user to select from a list of options.
+
+```json
+{"cmd": "prompt_choice", "prompt": "Select action:", "choices": ["Attack", "Defend", "Run"], "out": "action", "style": "buttons"}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| prompt | string | "Select:" | Message shown to the user |
+| choices | list | required | List of options to choose from |
+| out | string | "choice" | Variable to store the selected value |
+| style | string | "dropdown" | Display style: "dropdown" or "buttons" |
+
+**Example: Interactive decision point**
+```json
+{"cmd": "prompt_choice", "prompt": "Shiny found! What should we do?", "choices": ["Catch it", "Run away", "Take screenshot"], "out": "decision", "style": "buttons"}
+{"cmd": "if", "left": "$decision", "op": "==", "right": "Catch it"}
+  {"cmd": "press", "buttons": ["A"], "ms": 50}
+{"cmd": "end_if"}
+```
+
+### Audio Commands
+
+#### play_sound
+Play a sound file from the `./bin/sounds/` folder.
+
+```json
+{"cmd": "play_sound", "file": "notification.wav", "volume": 50, "wait": false}
+```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| file | string | required | Sound filename in ./bin/sounds/ |
+| volume | int | 100 | Volume level (0-100) |
+| wait | bool | false | If true, wait for sound to finish before continuing |
+
+**Supported formats:** WAV, MP3, and other formats supported by ffplay.
+
+**Example: Audio notification on event**
+```json
+{"cmd": "find_color", "x": 100, "y": 200, "rgb": [255, 215, 0], "tol": 10, "out": "found_shiny"}
+{"cmd": "if", "left": "$found_shiny", "op": "==", "right": true}
+  {"cmd": "play_sound", "file": "alert.wav", "volume": 80}
+{"cmd": "end_if"}
 ```
 
 ### Stick Commands
@@ -779,6 +913,14 @@ Convert scripts to standalone Python files for distribution or direct execution.
 | if/end_if | Yes | Python if statements |
 | while/end_while | Yes | Python while loops |
 | run_python | Yes | Subprocess call |
+| start_timing | No | Requires timing reference system |
+| wait_until | No | Requires timing reference system |
+| get_elapsed | No | Requires timing reference system |
+| export_json | No | Requires filesystem |
+| import_json | No | Requires filesystem |
+| prompt_input | No | Requires GUI |
+| prompt_choice | No | Requires GUI |
+| play_sound | No | Requires audio system |
 | save_frame | No | Requires camera and filesystem |
 | discord_status | No | Requires Discord webhook |
 | find_color | No | Requires camera |
